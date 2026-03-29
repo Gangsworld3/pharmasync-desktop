@@ -1,0 +1,66 @@
+name: Reliability Gates
+
+on:
+  pull_request:
+    paths:
+      - "desktop-tests/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/reliability-gates.yml"
+  push:
+    branches: ["main"]
+    paths:
+      - "desktop-tests/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/reliability-gates.yml"
+  workflow_dispatch:
+
+jobs:
+  simulation-gates:
+    name: "Gate: ${{ matrix.profile }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: default
+            min_success_rate: "0.95"
+            max_dead_letter: "0"
+            max_duplicate: "0"
+          - profile: high-failure
+            min_success_rate: "0.85"
+            max_dead_letter: "0"
+            max_duplicate: "0"
+          - profile: high-conflict
+            min_success_rate: "0.70"
+            max_dead_letter: "0"
+            max_duplicate: "0"
+          - profile: latency
+            min_success_rate: "0.95"
+            max_dead_letter: "0"
+            max_duplicate: "0"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run simulation gate (${{ matrix.profile }})
+        env:
+          SIM_PROFILE: ${{ matrix.profile }}
+          SIM_CLEANUP: "true"
+          SIM_WRITE_RUNS: "false"
+          SIM_MIN_SUCCESS_RATE: ${{ matrix.min_success_rate }}
+          SIM_MAX_DEAD_LETTER: ${{ matrix.max_dead_letter }}
+          SIM_MAX_DUPLICATE: ${{ matrix.max_duplicate }}
+        run: npm run simulate:sync

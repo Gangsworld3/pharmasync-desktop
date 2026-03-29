@@ -58,6 +58,24 @@ Override thresholds per run:
 - `--maxDuplicate <int>`
 - `--minSuccessRate <0..1>`
 
+## CI Reliability Gates
+
+GitHub Actions reliability gate workflow:
+
+- [reliability-gates.yml](C:/Users/hp/Documents/GitHub/pharmasync-desktop/.github/workflows/reliability-gates.yml)
+
+Profiles enforced in CI:
+
+- `default` with `minSuccessRate=0.95`
+- `high-failure` with `minSuccessRate=0.85`
+- `high-conflict` with `minSuccessRate=0.70`
+- `latency` with `minSuccessRate=0.95`
+
+All CI profiles enforce:
+
+- `maxDeadLetter=0`
+- `maxDuplicate=0`
+
 ## Trend Tracking
 
 Simulation scorecards are persisted under:
