@@ -35,6 +35,36 @@ This matrix validates sync invariants under failure, not endpoint availability.
   - `npm run simulate:sync`
   - Optional overrides:
     - `npm run simulate:sync -- --ops 5000 --batchSize 50 --failEvery 13 --throwRate 0.05 --conflictRate 0.03`
+  - Profiles:
+    - `npm run simulate:sync:high-failure`
+    - `npm run simulate:sync:high-conflict`
+    - `npm run simulate:sync:latency`
+
+## CI Guardrail Thresholds
+
+The simulation exits non-zero when thresholds are violated:
+
+```json
+{
+  "maxDeadLetter": 0,
+  "maxDuplicate": 0,
+  "minSuccessRate": 0.95
+}
+```
+
+Override thresholds per run:
+
+- `--maxDeadLetter <int>`
+- `--maxDuplicate <int>`
+- `--minSuccessRate <0..1>`
+
+## Trend Tracking
+
+Simulation scorecards are persisted under:
+
+- `runs/YYYY-MM-DD-sim-<id>.json`
+
+Use these files to track reliability drift and regressions over time.
 
 ## Scorecard
 

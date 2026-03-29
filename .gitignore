@@ -22,6 +22,7 @@ env/
 *.log
 logs/
 runtime/logs/
+runs/*.json
 
 # Local databases and state
 *.db

@@ -37,6 +37,12 @@ jobs:
           node --check server.js
           node --check electron/main.js
 
+      - name: Run sync simulation guardrail
+        env:
+          SIM_CLEANUP: "true"
+          SIM_PROFILE: high-failure
+        run: npm run simulate:sync
+
   test:
     runs-on: ubuntu-latest
 

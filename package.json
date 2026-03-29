@@ -17,7 +17,10 @@
     "test:desktop-sync": "node --test --test-concurrency=1 desktop-tests/sync-resilience.test.js",
     "test:desktop-chaos": "node --test --test-concurrency=1 desktop-tests/sync-chaos.test.js",
     "test:desktop-chaos-matrix": "node --test --test-concurrency=1 desktop-tests/chaos-matrix.test.js",
-    "simulate:sync": "node desktop-tests/sync-simulation-runner.js"
+    "simulate:sync": "node desktop-tests/sync-simulation-runner.js",
+    "simulate:sync:high-failure": "node desktop-tests/sync-simulation-runner.js --profile high-failure",
+    "simulate:sync:high-conflict": "node desktop-tests/sync-simulation-runner.js --profile high-conflict",
+    "simulate:sync:latency": "node desktop-tests/sync-simulation-runner.js --profile latency"
   },
   "engines": {
     "node": ">=20"
