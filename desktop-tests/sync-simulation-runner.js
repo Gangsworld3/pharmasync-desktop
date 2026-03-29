@@ -83,7 +83,8 @@ function buildConfig() {
     },
     baseline: {
       enforce: String(args.enforceBaseline ?? process.env.SIM_ENFORCE_BASELINE ?? "true").toLowerCase() !== "false",
-      file: String(args.baselineFile ?? process.env.SIM_BASELINE_FILE ?? ".ci/reliability-baseline.json"),
+      file: String(args.baselineFile ?? process.env.SIM_BASELINE_FILE ?? ""),
+      dir: String(args.baselineDir ?? process.env.SIM_BASELINE_DIR ?? "ci-baselines"),
       dropTolerance: bounded(
         toFloat(args.baselineDropTolerance ?? process.env.SIM_BASELINE_DROP_TOLERANCE, 0.02),
         0,
@@ -408,12 +409,13 @@ async function run() {
     const currentFilePath = fileURLToPath(import.meta.url);
     const repoRoot = path.resolve(path.dirname(currentFilePath), "..");
     if (config.baseline.enforce) {
-      const baselinePath = path.resolve(repoRoot, config.baseline.file);
+      const baselinePath = config.baseline.file
+        ? path.resolve(repoRoot, config.baseline.file)
+        : path.resolve(repoRoot, config.baseline.dir, `${config.profile}.json`);
       try {
         const raw = await readFile(baselinePath, "utf8");
         const baselineDoc = JSON.parse(raw);
-        const baselineProfiles = baselineDoc?.profiles ?? {};
-        const baseline = baselineProfiles[config.profile];
+        const baseline = baselineDoc?.profiles?.[config.profile] ?? baselineDoc;
         if (baseline && typeof baseline.syncRate === "number") {
           if (syncRate < baseline.syncRate - config.baseline.dropTolerance) {
             thresholdViolations.push(
@@ -430,6 +432,7 @@ async function run() {
         }
         scorecard.baseline = {
           file: path.relative(repoRoot, baselinePath).replace(/\\/g, "/"),
+          mode: config.baseline.file ? "single-file" : "per-profile-file",
           dropTolerance: config.baseline.dropTolerance,
           profile: config.profile,
           reference: baseline ?? null,

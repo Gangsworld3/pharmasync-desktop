@@ -78,9 +78,12 @@ All CI profiles enforce:
 
 ### Drift Regression Gate
 
-CI also compares current profile metrics to baseline in:
+CI also compares current profile metrics to per-profile baselines in:
 
-- [.ci/reliability-baseline.json](C:/Users/hp/Documents/GitHub/pharmasync-desktop/.ci/reliability-baseline.json)
+- [ci-baselines/default.json](C:/Users/hp/Documents/GitHub/pharmasync-desktop/ci-baselines/default.json)
+- [ci-baselines/high-failure.json](C:/Users/hp/Documents/GitHub/pharmasync-desktop/ci-baselines/high-failure.json)
+- [ci-baselines/high-conflict.json](C:/Users/hp/Documents/GitHub/pharmasync-desktop/ci-baselines/high-conflict.json)
+- [ci-baselines/latency.json](C:/Users/hp/Documents/GitHub/pharmasync-desktop/ci-baselines/latency.json)
 
 Default regression tolerance:
 
