@@ -27,6 +27,10 @@ import {
 } from "./sync-retry-scheduler.js";
 import { transition } from "./sync-state-machine.js";
 import { mapConflict } from "./sync-conflict-adapter.js";
+import { pushPendingChanges as pushPendingChangesPipeline } from "./sync-push-service.js";
+import { pullServerChanges as pullServerChangesPipeline } from "./sync-pull-service.js";
+import { runSyncCycle as runSyncCyclePipeline } from "./sync-cycle-runner.js";
+import { startLoop, stopLoop } from "./sync-loop.js";
 
 let syncTimer = null;
 let syncInFlight = false;
@@ -416,133 +420,30 @@ export async function recordLocalOperation(entry) {
   return appendLocalOperation(entry);
 }
 
-export async function pushPendingChanges() {
-  const deviceState = await ensureDeviceState();
-  const config = getRemoteConfig();
-  const allPendingOperations = await getPendingLocalOperations();
-  const now = new Date();
-  const schedulableStatuses = new Set(["PENDING", "RETRY", "RETRY_SCHEDULED", "IN_PROGRESS"]);
-  const pendingOperations = allPendingOperations.filter((operation) => schedulableStatuses.has(operation.status));
-  const dueOperations = pendingOperations.filter((operation) => shouldRetry(operation, now, config));
-  const deferredOperations = pendingOperations.filter((operation) => !shouldRetry(operation, now, config));
-
-  if (!dueOperations.length) {
-    return {
-      pushed: 0,
-      revision: deviceState.lastPulledRevision,
-      results: [],
-      deferred: deferredOperations.length,
-      deferredOperations: deferredOperations.map((operation) => getDeferredState(operation, now, config))
-    };
-  }
-
-  const batchSize = Math.max(1, sanitizePositiveNumber(config.pushBatchSize, DEFAULT_PUSH_BATCH_SIZE));
-  const aggregatedResults = [];
-  const aggregatedServerChanges = [];
-  let latestRevision = deviceState.lastPulledRevision;
-
-  for (let index = 0; index < dueOperations.length; index += batchSize) {
-    const batch = dueOperations.slice(index, index + batchSize);
-    const batchAttemptStartedAt = new Date();
-    for (const operation of batch) {
-      await applyOperationTransition(operation, "START_ATTEMPT", { now: batchAttemptStartedAt });
-    }
-
-    const payload = {
-      deviceId: deviceState.deviceId,
-      lastPulledRevision: latestRevision,
-      changes: batch.map(buildSyncChange)
-    };
-
-    let response;
-    let body;
-    try {
-      const result = await authorizedJsonRequest("/sync/push", {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
-      response = result.response;
-      body = result.body;
-    } catch (error) {
-      for (const operation of batch) {
-        await applyOperationTransition(operation, "FAIL", {
-          reason: error.message || "Push request failed",
-          config,
-          maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
-          now: new Date()
-        });
-      }
-      throw error;
-    }
-
-    if (!response.ok) {
-      for (const operation of batch) {
-        await applyOperationTransition(operation, "FAIL", {
-          reason: `Push failed (${response.status})`,
-          config,
-          maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
-          now: new Date()
-        });
-      }
-      throw new Error(`Push failed (${response.status}).`);
-    }
-
-    const results = body.data?.results ?? [];
-    const conflicts = body.data?.conflicts ?? [];
-    const serverChanges = sortServerChanges(body.data?.serverChanges ?? []);
-
-    for (const operation of batch) {
-      const result = results.find((entry) => entry.operationId === operation.operationId);
-      if (!result) {
-        await applyOperationTransition(operation, "FAIL", {
-          reason: "Push result missing for operation; scheduled retry.",
-          config,
-          maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
-          now: new Date()
-        });
-        continue;
-      }
-
-      if (result.status === "APPLIED" || result.status === "IDEMPOTENT_REPLAY") {
-        await applyOperationTransition(operation, result.status, { now: new Date() });
-        continue;
-      }
-
-      if (result.status === "CONFLICT") {
-        const conflict = conflicts.find((entry) => entry.entityId === operation.entityId && entry.local.operationId === operation.operationId);
-        const enrichedConflict = mapConflict(conflict, operation);
-        await applyOperationTransition(operation, "CONFLICT", {
-          now: new Date(),
-          conflictPayload: enrichedConflict ?? { type: "CONFLICT", resolution: "Manual resolution required" }
-        });
-        continue;
-      }
-
-      await applyOperationTransition(operation, "FAIL", {
-        reason: result.error ?? "Remote rejection",
-        config,
-        maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
-        now: new Date()
-      });
-    }
-
-    for (const change of serverChanges) {
-      await applyServerChange(change);
-    }
-
-    aggregatedResults.push(...results);
-    aggregatedServerChanges.push(...serverChanges);
-    latestRevision = Math.max(latestRevision, body.meta?.revision ?? latestRevision);
-  }
-
+function buildPushContext() {
   return {
-    pushed: dueOperations.length,
-    revision: latestRevision,
-    serverChanges: aggregatedServerChanges,
-    results: aggregatedResults,
-    resultSummary: buildSyncResultSummary(aggregatedResults),
-    deferred: deferredOperations.length,
-    deferredOperations: deferredOperations.map((operation) => getDeferredState(operation, now, config))
+    ensureDeviceState,
+    getRemoteConfig,
+    getPendingLocalOperations,
+    shouldRetry,
+    getDeferredState,
+    sanitizePositiveNumber,
+    defaultPushBatchSize: DEFAULT_PUSH_BATCH_SIZE,
+    buildSyncChange,
+    authorizedJsonRequest,
+    applyOperationTransition,
+    mapConflict,
+    applyServerChange,
+    sortServerChanges,
+    defaultMaxOperationAttempts: DEFAULT_MAX_OPERATION_ATTEMPTS
+  };
+}
+
+export async function pushPendingChanges() {
+  const result = await pushPendingChangesPipeline(buildPushContext());
+  return {
+    ...result,
+    resultSummary: buildSyncResultSummary(result.results ?? [])
   };
 }
 
@@ -563,83 +464,46 @@ async function applyServerChange(change) {
   }
 }
 
-export async function pullServerChanges() {
-  const deviceState = await ensureDeviceState();
-  const deviceIdParam = encodeURIComponent(deviceState.deviceId);
-  const { response, body } = await authorizedJsonRequest(`/sync/pull?since=${deviceState.lastPulledRevision}&deviceId=${deviceIdParam}`, {
-    method: "GET"
-  });
-
-  if (!response.ok) {
-    throw new Error(`Pull failed (${response.status}).`);
-  }
-
-  const serverChanges = sortServerChanges(body.data.serverChanges ?? []);
-
-  for (const change of serverChanges) {
-    await applyServerChange(change);
-  }
-
-  await updateDeviceState({
-    deviceId: deviceState.deviceId,
-    lastPulledRevision: body.meta.revision,
-    syncStatus: "SYNCED",
-    lastSyncCompletedAt: new Date(),
-    lastSyncError: null,
-    remoteBaseUrl: getRemoteConfig().baseUrl
-  });
-
+function buildPullContext() {
   return {
-    pulled: serverChanges.length,
-    revision: body.meta.revision,
-    serverChanges
+    ensureDeviceState,
+    authorizedJsonRequest,
+    sortServerChanges,
+    applyServerChange,
+    updateDeviceState,
+    getRemoteConfig
+  };
+}
+
+export async function pullServerChanges() {
+  return pullServerChangesPipeline(buildPullContext());
+}
+
+function buildCycleContext() {
+  return {
+    getSyncInFlight: () => syncInFlight,
+    setSyncInFlight: (value) => { syncInFlight = value; },
+    ensureDeviceState,
+    recoverInProgressLocalOperations,
+    markSyncStart,
+    pushPendingChanges,
+    pullServerChanges,
+    markSyncFinish,
+    getConflictLocalOperations,
+    clearAuthToken: () => { authToken = null; },
+    getRemoteConfig,
+    sanitizePositiveNumber,
+    defaultRetryMaxMs: DEFAULT_RETRY_MAX_MS,
+    jitterMs,
+    getRetryBackoffMs: () => retryBackoffMs,
+    setRetryBackoffMs: (value) => { retryBackoffMs = value; },
+    setNextScheduledAt: (value) => { nextScheduledAt = value; },
+    markSyncFailure
   };
 }
 
 export async function runSyncCycle() {
-  if (syncInFlight) {
-    return { status: "skipped", reason: "sync_in_progress" };
-  }
-
-  syncInFlight = true;
-  const deviceState = await ensureDeviceState();
-
-  try {
-    await recoverInProgressLocalOperations();
-    await markSyncStart(deviceState);
-    const pushResult = await pushPendingChanges();
-    const pullResult = await pullServerChanges();
-    const latestRevision = Math.max(pushResult.revision ?? 0, pullResult.revision ?? 0);
-    await markSyncFinish(deviceState, latestRevision);
-    retryBackoffMs = 0;
-    nextScheduledAt = null;
-
-    return {
-      status: "success",
-      push: pushResult,
-      pull: pullResult,
-      conflicts: await getConflictLocalOperations(),
-      retryBackoffMs,
-      nextScheduledAt
-    };
-  } catch (error) {
-    authToken = null;
-    const { syncIntervalMs, retryMaxMs } = getRemoteConfig();
-    const retryMax = sanitizePositiveNumber(retryMaxMs, DEFAULT_RETRY_MAX_MS);
-    retryBackoffMs = retryBackoffMs
-      ? Math.min(jitterMs(retryBackoffMs * 2), retryMax)
-      : Math.min(jitterMs(syncIntervalMs * 2), retryMax);
-    nextScheduledAt = new Date(Date.now() + retryBackoffMs);
-    await markSyncFailure(deviceState, error);
-    return {
-      status: "error",
-      error: error.message,
-      retryBackoffMs,
-      nextRetryAt: nextScheduledAt?.toISOString() ?? null
-    };
-  } finally {
-    syncInFlight = false;
-  }
+  return runSyncCyclePipeline(buildCycleContext());
 }
 
 export async function getSyncEngineStatus() {
@@ -667,31 +531,24 @@ export async function getSyncEngineStatus() {
   };
 }
 
-export async function startBackgroundSyncLoop(intervalMs = null) {
-  await ensureDeviceState();
-
-  if (syncTimer) {
-    return;
-  }
-  await startRealtimeSyncListener();
-
-  const schedule = async () => {
-    await runSyncCycle().catch(() => {});
-    const nextDelay = retryBackoffMs || Number(intervalMs ?? getRemoteConfig().syncIntervalMs);
-    nextScheduledAt = new Date(Date.now() + nextDelay);
-    syncTimer = setTimeout(schedule, nextDelay);
+function buildLoopContext() {
+  return {
+    ensureDeviceState,
+    getSyncTimer: () => syncTimer,
+    setSyncTimer: (value) => { syncTimer = value; },
+    startRealtimeSyncListener,
+    runSyncCycle,
+    getRetryBackoffMs: () => retryBackoffMs,
+    setNextScheduledAt: (value) => { nextScheduledAt = value; },
+    getRemoteConfig,
+    stopRealtimeSyncListener
   };
+}
 
-  const initialDelay = Number(intervalMs ?? getRemoteConfig().syncIntervalMs);
-  nextScheduledAt = new Date(Date.now() + initialDelay);
-  syncTimer = setTimeout(schedule, initialDelay);
+export async function startBackgroundSyncLoop(intervalMs = null) {
+  return startLoop(buildLoopContext(), intervalMs);
 }
 
 export function stopBackgroundSyncLoop() {
-  if (syncTimer) {
-    clearTimeout(syncTimer);
-    syncTimer = null;
-  }
-  stopRealtimeSyncListener();
-  nextScheduledAt = null;
+  return stopLoop(buildLoopContext());
 }
