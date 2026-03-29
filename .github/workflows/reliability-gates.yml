@@ -63,4 +63,7 @@ jobs:
           SIM_MIN_SUCCESS_RATE: ${{ matrix.min_success_rate }}
           SIM_MAX_DEAD_LETTER: ${{ matrix.max_dead_letter }}
           SIM_MAX_DUPLICATE: ${{ matrix.max_duplicate }}
+          SIM_ENFORCE_BASELINE: "true"
+          SIM_BASELINE_FILE: ".ci/reliability-baseline.json"
+          SIM_BASELINE_DROP_TOLERANCE: "0.02"
         run: npm run simulate:sync

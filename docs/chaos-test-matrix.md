@@ -76,6 +76,20 @@ All CI profiles enforce:
 - `maxDeadLetter=0`
 - `maxDuplicate=0`
 
+### Drift Regression Gate
+
+CI also compares current profile metrics to baseline in:
+
+- [.ci/reliability-baseline.json](C:/Users/hp/Documents/GitHub/pharmasync-desktop/.ci/reliability-baseline.json)
+
+Default regression tolerance:
+
+- `SIM_BASELINE_DROP_TOLERANCE=0.02`
+
+Gate rule:
+
+- fail if current `syncRate` or `successRate` drops by more than 2% vs profile baseline.
+
 ## Trend Tracking
 
 Simulation scorecards are persisted under:

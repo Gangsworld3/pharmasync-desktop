@@ -1,7 +1,7 @@
 import "../src/db/init-sqlite.js";
 
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -77,6 +77,15 @@ function buildConfig() {
       ),
       minSuccessRate: bounded(
         toFloat(args.minSuccessRate ?? process.env.SIM_MIN_SUCCESS_RATE, thresholdDefaults.minSuccessRate),
+        0,
+        1
+      ),
+    },
+    baseline: {
+      enforce: String(args.enforceBaseline ?? process.env.SIM_ENFORCE_BASELINE ?? "true").toLowerCase() !== "false",
+      file: String(args.baselineFile ?? process.env.SIM_BASELINE_FILE ?? ".ci/reliability-baseline.json"),
+      dropTolerance: bounded(
+        toFloat(args.baselineDropTolerance ?? process.env.SIM_BASELINE_DROP_TOLERANCE, 0.02),
         0,
         1
       ),
@@ -360,6 +369,8 @@ async function run() {
       );
     }
 
+    const syncRate = total > 0 ? counts.SYNCED / total : 0;
+    const finalConflictRate = total > 0 ? counts.CONFLICT / total : 0;
     const scorecard = {
       prefix,
       config,
@@ -378,6 +389,8 @@ async function run() {
       operationStatus: counts,
       rates: {
         successRate,
+        syncRate,
+        finalConflictRate,
       },
       thresholds: {
         ...config.thresholds,
@@ -392,9 +405,41 @@ async function run() {
       },
     };
 
+    const currentFilePath = fileURLToPath(import.meta.url);
+    const repoRoot = path.resolve(path.dirname(currentFilePath), "..");
+    if (config.baseline.enforce) {
+      const baselinePath = path.resolve(repoRoot, config.baseline.file);
+      try {
+        const raw = await readFile(baselinePath, "utf8");
+        const baselineDoc = JSON.parse(raw);
+        const baselineProfiles = baselineDoc?.profiles ?? {};
+        const baseline = baselineProfiles[config.profile];
+        if (baseline && typeof baseline.syncRate === "number") {
+          if (syncRate < baseline.syncRate - config.baseline.dropTolerance) {
+            thresholdViolations.push(
+              `regression_sync_rate=${syncRate.toFixed(4)} below baseline=${baseline.syncRate.toFixed(4)} by > ${config.baseline.dropTolerance}`
+            );
+          }
+        }
+        if (baseline && typeof baseline.successRate === "number") {
+          if (successRate < baseline.successRate - config.baseline.dropTolerance) {
+            thresholdViolations.push(
+              `regression_success_rate=${successRate.toFixed(4)} below baseline=${baseline.successRate.toFixed(4)} by > ${config.baseline.dropTolerance}`
+            );
+          }
+        }
+        scorecard.baseline = {
+          file: path.relative(repoRoot, baselinePath).replace(/\\/g, "/"),
+          dropTolerance: config.baseline.dropTolerance,
+          profile: config.profile,
+          reference: baseline ?? null,
+        };
+      } catch (error) {
+        thresholdViolations.push(`baseline_read_error=${String(error?.message ?? error)}`);
+      }
+    }
+
     if (config.writeRuns) {
-      const currentFilePath = fileURLToPath(import.meta.url);
-      const repoRoot = path.resolve(path.dirname(currentFilePath), "..");
       const runsDir = path.join(repoRoot, "runs");
       await mkdir(runsDir, { recursive: true });
       const runFilePath = path.join(runsDir, `${new Date().toISOString().slice(0, 10)}-${prefix}.json`);
