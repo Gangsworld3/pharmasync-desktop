@@ -1,11 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import "../src/db/init-sqlite.js";
 import { prisma } from "../src/db/client.js";
 import { appendLocalOperation, ensureDeviceState, updateLocalOperation } from "../src/db/repositories.js";
 import { pushPendingChanges } from "../src/services/sync-engine.js";
+import { mapConflict } from "../src/services/sync-conflict-adapter.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";
+import { computeNextRetry, getDeferredState, shouldRetry } from "../src/services/sync-retry-scheduler.js";
+import { transition } from "../src/services/sync-state-machine.js";
 
 const serial = { concurrency: false };
 
@@ -164,5 +170,108 @@ test("keeps retry-scheduled operations deferred until nextAttemptAt", serial, as
     assert.ok(result.deferredOperations[0].nextAttemptAt);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("retry scheduler snapshot parity stays stable", serial, async () => {
+  const now = new Date("2026-03-29T12:00:00.000Z");
+  const operation = {
+    operationId: "snapshot-op-1",
+    idempotencyKey: "snapshot-op-1",
+    status: "RETRY_SCHEDULED",
+    attempts: 2,
+    backoffMs: 5000,
+    lastAttemptAt: "2026-03-29T11:59:55.000Z",
+    nextAttemptAt: "2026-03-29T12:00:10.000Z"
+  };
+  const config = { retryBaseMs: 2500, retryMaxMs: 300000 };
+
+  const snapshot = {
+    backoffMs: computeNextRetry(operation, config),
+    retryEligible: shouldRetry(operation, now, config),
+    deferredState: getDeferredState(operation, now, config)
+  };
+
+  assert.deepEqual(snapshot, {
+    backoffMs: 10000,
+    retryEligible: false,
+    deferredState: {
+      operationId: "snapshot-op-1",
+      idempotencyKey: "snapshot-op-1",
+      status: "RETRY_SCHEDULED",
+      attempts: 2,
+      backoffMs: 5000,
+      lastAttemptAt: "2026-03-29T11:59:55.000Z",
+      nextAttemptAt: "2026-03-29T12:00:10.000Z",
+      remainingMs: 10000
+    }
+  });
+});
+
+test("state machine transition table parity remains stable", serial, async () => {
+  const now = new Date("2026-03-29T12:00:00.000Z");
+  const operation = { attempts: 1, backoffMs: 5000 };
+
+  assert.equal(transition(operation, "START_ATTEMPT", { now }).nextState, "IN_PROGRESS");
+  assert.equal(transition(operation, "APPLIED", { now }).nextState, "SYNCED");
+  assert.equal(transition(operation, "IDEMPOTENT_REPLAY", { now }).nextState, "SYNCED");
+  assert.equal(transition(operation, "CONFLICT", { now }).nextState, "CONFLICT");
+  assert.equal(
+    transition(operation, "FAIL", { now, reason: "x", config: { retryBaseMs: 2500, retryMaxMs: 300000 }, maxAttempts: 8 }).nextState,
+    "RETRY_SCHEDULED"
+  );
+  assert.equal(
+    transition({ attempts: 7, backoffMs: 5000 }, "FAIL", { now, reason: "x", config: { retryBaseMs: 2500, retryMaxMs: 300000 }, maxAttempts: 8 }).nextState,
+    "DEAD_LETTER"
+  );
+});
+
+test("conflict adapter payload snapshot parity remains stable", serial, async () => {
+  const payload = mapConflict(
+    {
+      type: "INSUFFICIENT_STOCK",
+      resolution: "Manual resolution required",
+      serverRevision: 20,
+      local: { data: { quantity_on_hand: 5, sku: "S1" } },
+      server: { quantity_on_hand: 2, sku: "S1" }
+    },
+    {
+      localRevision: 10,
+      payloadJson: JSON.stringify({ quantity_on_hand: 5, sku: "S1" })
+    }
+  );
+
+  assert.deepEqual(payload, {
+    type: "INSUFFICIENT_STOCK",
+    resolution: "Manual resolution required",
+    serverRevision: 20,
+    local: { data: { quantity_on_hand: 5, sku: "S1" } },
+    server: { quantity_on_hand: 2, sku: "S1" },
+    localVersion: 10,
+    serverVersion: 20,
+    fieldDiff: { quantity_on_hand: [5, 2] }
+  });
+});
+
+test("extracted sync modules remain pure (no fetch/db side effects)", serial, async () => {
+  const rootDir = path.dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+  const files = [
+    "src/services/sync-retry-scheduler.js",
+    "src/services/sync-state-machine.js",
+    "src/services/sync-conflict-adapter.js"
+  ];
+  const forbiddenPatterns = [
+    /fetch\s*\(/,
+    /updateLocalOperation/,
+    /from\s+["']\.\.\/db\//,
+    /from\s+["']\.\.\/\.\.\/db\//
+  ];
+
+  for (const relPath of files) {
+    const fullPath = path.join(rootDir, relPath);
+    const source = fs.readFileSync(fullPath, "utf8");
+    for (const pattern of forbiddenPatterns) {
+      assert.equal(pattern.test(source), false, `${relPath} violates purity rule: ${pattern}`);
+    }
   }
 });

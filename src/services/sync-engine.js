@@ -20,6 +20,13 @@ import {
   getDesktopSettings,
   saveDesktopSession
 } from "./desktop-runtime.js";
+import {
+  getDeferredState,
+  sanitizePositiveNumber,
+  shouldRetry
+} from "./sync-retry-scheduler.js";
+import { transition } from "./sync-state-machine.js";
+import { mapConflict } from "./sync-conflict-adapter.js";
 
 let syncTimer = null;
 let syncInFlight = false;
@@ -62,10 +69,6 @@ function getRemoteConfig() {
   };
 }
 
-function sanitizePositiveNumber(value, fallback) {
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -102,112 +105,10 @@ function parseJsonSafe(raw) {
   }
 }
 
-function computeNextBackoffMs(operation, config) {
-  const retryBase = sanitizePositiveNumber(config.retryBaseMs, DEFAULT_RETRY_BASE_MS);
-  const retryMax = sanitizePositiveNumber(config.retryMaxMs, DEFAULT_RETRY_MAX_MS);
-  if (!operation.backoffMs || operation.backoffMs <= 0) {
-    return retryBase;
-  }
-  return Math.min(operation.backoffMs * 2, retryMax);
-}
-
-function isOperationDue(operation, now, config) {
-  if (operation.status === "PENDING") {
-    return true;
-  }
-
-  if (operation.nextAttemptAt) {
-    return new Date(operation.nextAttemptAt).getTime() <= now.getTime();
-  }
-
-  if (!operation.lastAttemptAt) {
-    return true;
-  }
-
-  const fallbackCooldownMs = computeNextBackoffMs(operation, config);
-  return now.getTime() - new Date(operation.lastAttemptAt).getTime() >= fallbackCooldownMs;
-}
-
-function buildOperationProgress(operation, config) {
-  const nextAttemptAt = operation.nextAttemptAt
-    ? new Date(operation.nextAttemptAt)
-    : (operation.lastAttemptAt
-      ? new Date(new Date(operation.lastAttemptAt).getTime() + computeNextBackoffMs(operation, config))
-      : null);
-  const remainingMs = nextAttemptAt ? Math.max(0, nextAttemptAt.getTime() - Date.now()) : 0;
-
-  return {
-    operationId: operation.operationId,
-    idempotencyKey: operation.idempotencyKey ?? null,
-    status: operation.status,
-    attempts: operation.attempts ?? 0,
-    backoffMs: operation.backoffMs ?? 0,
-    lastAttemptAt: operation.lastAttemptAt ?? null,
-    nextAttemptAt: nextAttemptAt?.toISOString() ?? null,
-    remainingMs
-  };
-}
-
-function buildConflictFieldDiff(localData, serverData) {
-  if (!localData || !serverData || typeof localData !== "object" || typeof serverData !== "object") {
-    return null;
-  }
-
-  const keys = new Set([...Object.keys(localData), ...Object.keys(serverData)]);
-  const fieldDiff = {};
-
-  for (const key of keys) {
-    const localValue = localData[key];
-    const serverValue = serverData[key];
-    if (JSON.stringify(localValue) !== JSON.stringify(serverValue)) {
-      fieldDiff[key] = [localValue ?? null, serverValue ?? null];
-    }
-  }
-
-  return Object.keys(fieldDiff).length ? fieldDiff : null;
-}
-
-function enrichConflictPayload(conflict, operation) {
-  const localData = conflict?.local?.data ?? parsePayloadJson(operation.payloadJson);
-  const serverData = conflict?.server ?? null;
-  const fieldDiff = buildConflictFieldDiff(localData, serverData);
-
-  return {
-    ...(conflict ?? {}),
-    localVersion: operation.localRevision ?? null,
-    serverVersion: conflict?.serverRevision ?? serverData?.server_revision ?? null,
-    fieldDiff
-  };
-}
-
-async function transitionOperationToRetryScheduled(operation, reason, config, now = new Date()) {
-  const attempts = Number(operation.attempts ?? 0);
-  const maxAttempts = sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS);
-  const nextAttempts = attempts + 1;
-
-  if (nextAttempts >= maxAttempts) {
-    await updateLocalOperation(operation.id, {
-      status: "DEAD_LETTER",
-      errorDetail: reason,
-      attempts: { increment: 1 },
-      lastAttemptAt: now,
-      deadLetteredAt: now,
-      nextAttemptAt: null
-    });
-    return "DEAD_LETTER";
-  }
-
-  const nextBackoffMs = computeNextBackoffMs(operation, config);
-  await updateLocalOperation(operation.id, {
-    status: "RETRY_SCHEDULED",
-    errorDetail: reason,
-    attempts: { increment: 1 },
-    backoffMs: nextBackoffMs,
-    lastAttemptAt: now,
-    nextAttemptAt: new Date(now.getTime() + nextBackoffMs),
-    deadLetteredAt: null
-  });
-  return "RETRY_SCHEDULED";
+async function applyOperationTransition(operation, event, context = {}) {
+  const result = transition(operation, event, context);
+  await updateLocalOperation(operation.id, result.patch);
+  return result.nextState;
 }
 
 async function getAuthHeaders(forceRefresh = false) {
@@ -522,8 +423,8 @@ export async function pushPendingChanges() {
   const now = new Date();
   const schedulableStatuses = new Set(["PENDING", "RETRY", "RETRY_SCHEDULED", "IN_PROGRESS"]);
   const pendingOperations = allPendingOperations.filter((operation) => schedulableStatuses.has(operation.status));
-  const dueOperations = pendingOperations.filter((operation) => isOperationDue(operation, now, config));
-  const deferredOperations = pendingOperations.filter((operation) => !isOperationDue(operation, now, config));
+  const dueOperations = pendingOperations.filter((operation) => shouldRetry(operation, now, config));
+  const deferredOperations = pendingOperations.filter((operation) => !shouldRetry(operation, now, config));
 
   if (!dueOperations.length) {
     return {
@@ -531,7 +432,7 @@ export async function pushPendingChanges() {
       revision: deviceState.lastPulledRevision,
       results: [],
       deferred: deferredOperations.length,
-      deferredOperations: deferredOperations.map((operation) => buildOperationProgress(operation, config))
+      deferredOperations: deferredOperations.map((operation) => getDeferredState(operation, now, config))
     };
   }
 
@@ -544,11 +445,7 @@ export async function pushPendingChanges() {
     const batch = dueOperations.slice(index, index + batchSize);
     const batchAttemptStartedAt = new Date();
     for (const operation of batch) {
-      await updateLocalOperation(operation.id, {
-        status: "IN_PROGRESS",
-        errorDetail: null,
-        lastAttemptAt: batchAttemptStartedAt
-      });
+      await applyOperationTransition(operation, "START_ATTEMPT", { now: batchAttemptStartedAt });
     }
 
     const payload = {
@@ -568,14 +465,24 @@ export async function pushPendingChanges() {
       body = result.body;
     } catch (error) {
       for (const operation of batch) {
-        await transitionOperationToRetryScheduled(operation, error.message || "Push request failed", config, new Date());
+        await applyOperationTransition(operation, "FAIL", {
+          reason: error.message || "Push request failed",
+          config,
+          maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
+          now: new Date()
+        });
       }
       throw error;
     }
 
     if (!response.ok) {
       for (const operation of batch) {
-        await transitionOperationToRetryScheduled(operation, `Push failed (${response.status})`, config, new Date());
+        await applyOperationTransition(operation, "FAIL", {
+          reason: `Push failed (${response.status})`,
+          config,
+          maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
+          now: new Date()
+        });
       }
       throw new Error(`Push failed (${response.status}).`);
     }
@@ -587,40 +494,36 @@ export async function pushPendingChanges() {
     for (const operation of batch) {
       const result = results.find((entry) => entry.operationId === operation.operationId);
       if (!result) {
-        await transitionOperationToRetryScheduled(operation, "Push result missing for operation; scheduled retry.", config, new Date());
+        await applyOperationTransition(operation, "FAIL", {
+          reason: "Push result missing for operation; scheduled retry.",
+          config,
+          maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
+          now: new Date()
+        });
         continue;
       }
 
       if (result.status === "APPLIED" || result.status === "IDEMPOTENT_REPLAY") {
-        await updateLocalOperation(operation.id, {
-          status: "SYNCED",
-          errorDetail: null,
-          conflictPayloadJson: null,
-          attempts: { increment: 1 },
-          backoffMs: 0,
-          nextAttemptAt: null,
-          lastAttemptAt: new Date(),
-          deadLetteredAt: null
-        });
+        await applyOperationTransition(operation, result.status, { now: new Date() });
         continue;
       }
 
       if (result.status === "CONFLICT") {
         const conflict = conflicts.find((entry) => entry.entityId === operation.entityId && entry.local.operationId === operation.operationId);
-        const enrichedConflict = enrichConflictPayload(conflict, operation);
-        await updateLocalOperation(operation.id, {
-          status: "CONFLICT",
-          conflictPayloadJson: enrichedConflict ?? { type: "CONFLICT", resolution: "Manual resolution required" },
-          errorDetail: null,
-          attempts: { increment: 1 },
-          backoffMs: 0,
-          nextAttemptAt: null,
-          lastAttemptAt: new Date()
+        const enrichedConflict = mapConflict(conflict, operation);
+        await applyOperationTransition(operation, "CONFLICT", {
+          now: new Date(),
+          conflictPayload: enrichedConflict ?? { type: "CONFLICT", resolution: "Manual resolution required" }
         });
         continue;
       }
 
-      await transitionOperationToRetryScheduled(operation, result.error ?? "Remote rejection", config, new Date());
+      await applyOperationTransition(operation, "FAIL", {
+        reason: result.error ?? "Remote rejection",
+        config,
+        maxAttempts: sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS),
+        now: new Date()
+      });
     }
 
     for (const change of serverChanges) {
@@ -639,7 +542,7 @@ export async function pushPendingChanges() {
     results: aggregatedResults,
     resultSummary: buildSyncResultSummary(aggregatedResults),
     deferred: deferredOperations.length,
-    deferredOperations: deferredOperations.map((operation) => buildOperationProgress(operation, config))
+    deferredOperations: deferredOperations.map((operation) => getDeferredState(operation, now, config))
   };
 }
 
