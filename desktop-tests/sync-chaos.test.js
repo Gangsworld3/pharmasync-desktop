@@ -13,6 +13,8 @@ import { resolveDesktopConflict } from "../src/services/offline-service.js";
 import { getSyncEngineStatus, pushPendingChanges, runSyncCycle } from "../src/services/sync-engine.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";
 
+const serial = { concurrency: false };
+
 function jsonResponse(status, payload) {
   return {
     ok: status >= 200 && status < 300,
@@ -70,14 +72,24 @@ async function seedOperation(operationId, createdAtOffsetMs = 0) {
   return row;
 }
 
-test("chaos: network cut mid-batch preserves partial progress and resumes without duplicates", async () => {
+function uniqueOperationId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+test("chaos: network cut mid-batch preserves partial progress and resumes without duplicates", serial, async () => {
   await resetState();
   process.env.PHARMASYNC_SYNC_PUSH_BATCH_SIZE = "2";
+  process.env.PHARMASYNC_SYNC_REQUEST_RETRIES = "1";
 
-  await seedOperation("op-cut-1", -3000);
-  await seedOperation("op-cut-2", -2000);
-  await seedOperation("op-cut-3", -1000);
-  await seedOperation("op-cut-4", 0);
+  const op1 = uniqueOperationId("op-cut-1");
+  const op2 = uniqueOperationId("op-cut-2");
+  const op3 = uniqueOperationId("op-cut-3");
+  const op4 = uniqueOperationId("op-cut-4");
+
+  await seedOperation(op1, -3000);
+  await seedOperation(op2, -2000);
+  await seedOperation(op3, -1000);
+  await seedOperation(op4, 0);
 
   const postedOperationBatches = [];
   let pushCalls = 0;
@@ -131,23 +143,27 @@ test("chaos: network cut mid-batch preserves partial progress and resumes withou
     await pushPendingChanges();
     const finalRows = await prisma.localOperation.findMany({ orderBy: { createdAt: "asc" } });
     assert.equal(finalRows.filter((row) => row.status === "SYNCED").length, 4);
-    assert.deepEqual(postedOperationBatches[0], ["op-cut-1", "op-cut-2"]);
-    assert.deepEqual(postedOperationBatches[1], ["op-cut-3", "op-cut-4"]);
-    assert.deepEqual(postedOperationBatches[2], ["op-cut-3", "op-cut-4"]);
+    assert.deepEqual(postedOperationBatches[0], [op1, op2]);
+    assert.deepEqual(postedOperationBatches[1], [op3, op4]);
+    assert.deepEqual(postedOperationBatches[2], [op3, op4]);
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.PHARMASYNC_SYNC_PUSH_BATCH_SIZE;
+    delete process.env.PHARMASYNC_SYNC_REQUEST_RETRIES;
   }
 });
 
-test("chaos: periodic 500 failures backoff internally and complete ordered sync safely", async () => {
+test("chaos: periodic 500 failures backoff internally and complete ordered sync safely", serial, async () => {
   await resetState();
   process.env.PHARMASYNC_SYNC_PUSH_BATCH_SIZE = "1";
   process.env.PHARMASYNC_SYNC_REQUEST_RETRIES = "4";
 
-  await seedOperation("op-500-1", -3000);
-  await seedOperation("op-500-2", -2000);
-  await seedOperation("op-500-3", -1000);
+  const op1 = uniqueOperationId("op-500-1");
+  const op2 = uniqueOperationId("op-500-2");
+  const op3 = uniqueOperationId("op-500-3");
+  await seedOperation(op1, -3000);
+  await seedOperation(op2, -2000);
+  await seedOperation(op3, -1000);
 
   let requestCount = 0;
   const pushedInOrder = [];
@@ -179,7 +195,7 @@ test("chaos: periodic 500 failures backoff internally and complete ordered sync 
     await pushPendingChanges();
     const rows = await prisma.localOperation.findMany({ orderBy: { createdAt: "asc" } });
     assert.equal(rows.filter((row) => row.status === "SYNCED").length, 3);
-    assert.deepEqual([...new Set(pushedInOrder)].slice(0, 3), ["op-500-1", "op-500-2", "op-500-3"]);
+    assert.deepEqual([...new Set(pushedInOrder)].slice(0, 3), [op1, op2, op3]);
   } finally {
     globalThis.fetch = originalFetch;
     delete process.env.PHARMASYNC_SYNC_PUSH_BATCH_SIZE;
@@ -187,12 +203,13 @@ test("chaos: periodic 500 failures backoff internally and complete ordered sync 
   }
 });
 
-test("chaos: high latency timeout schedules retry and surfaces backoff state", async () => {
+test("chaos: high latency timeout schedules retry and surfaces backoff state", serial, async () => {
   await resetState();
   process.env.PHARMASYNC_SYNC_REQUEST_TIMEOUT_MS = "60";
   process.env.PHARMASYNC_SYNC_REQUEST_RETRIES = "1";
 
-  await seedOperation("op-timeout-1");
+  const operationId = uniqueOperationId("op-timeout-1");
+  await seedOperation(operationId);
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
@@ -201,7 +218,7 @@ test("chaos: high latency timeout schedules retry and surfaces backoff state", a
     }
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => resolve(jsonResponse(200, {
-        data: { results: [{ operationId: "op-timeout-1", status: "APPLIED" }], conflicts: [], serverChanges: [] },
+        data: { results: [{ operationId, status: "APPLIED" }], conflicts: [], serverChanges: [] },
         meta: { revision: 30 }
       })), 500);
       init.signal?.addEventListener("abort", () => {
@@ -214,7 +231,7 @@ test("chaos: high latency timeout schedules retry and surfaces backoff state", a
   try {
     const cycle = await runSyncCycle();
     assert.equal(cycle.status, "error");
-    const op = await prisma.localOperation.findUnique({ where: { operationId: "op-timeout-1" } });
+    const op = await prisma.localOperation.findUnique({ where: { operationId } });
     assert.ok(op);
     assert.equal(op.status, "RETRY_SCHEDULED");
     assert.equal(op.deadLetteredAt, null);
@@ -227,21 +244,22 @@ test("chaos: high latency timeout schedules retry and surfaces backoff state", a
   }
 });
 
-test("chaos: server conflict injection produces enriched metadata and UX actions remain functional", async () => {
+test("chaos: server conflict injection produces enriched metadata and UX actions remain functional", serial, async () => {
   await resetState();
-  await seedOperation("op-conflict-chaos");
+  const operationId = uniqueOperationId("op-conflict-chaos");
+  await seedOperation(operationId);
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     if (String(url).includes("/sync/push")) {
-      return jsonResponse(200, conflictPayloadFor("op-conflict-chaos"));
+      return jsonResponse(200, conflictPayloadFor(operationId));
     }
     throw new Error(`Unexpected URL: ${url}`);
   };
 
   try {
     await pushPendingChanges();
-    const conflictOp = await prisma.localOperation.findUnique({ where: { operationId: "op-conflict-chaos" } });
+    const conflictOp = await prisma.localOperation.findUnique({ where: { operationId } });
     assert.ok(conflictOp);
     assert.equal(conflictOp.status, "CONFLICT");
     const payload = JSON.parse(conflictOp.conflictPayloadJson);
@@ -255,16 +273,17 @@ test("chaos: server conflict injection produces enriched metadata and UX actions
     const accepted = await resolveDesktopConflict(conflictOp.id, { action: "ACCEPT_SERVER" }, "chaos-test");
     assert.equal(accepted.status, "resolved");
 
-    await seedOperation("op-conflict-chaos-retry");
+    const retryOperationId = uniqueOperationId("op-conflict-chaos-retry");
+    await seedOperation(retryOperationId);
     await prisma.localOperation.update({
-      where: { operationId: "op-conflict-chaos-retry" },
+      where: { operationId: retryOperationId },
       data: {
         status: "CONFLICT",
-        conflictPayloadJson: JSON.stringify(conflictPayloadFor("op-conflict-chaos-retry").data.conflicts[0]),
+        conflictPayloadJson: JSON.stringify(conflictPayloadFor(retryOperationId).data.conflicts[0]),
         errorDetail: null
       }
     });
-    const retryConflict = await prisma.localOperation.findUnique({ where: { operationId: "op-conflict-chaos-retry" } });
+    const retryConflict = await prisma.localOperation.findUnique({ where: { operationId: retryOperationId } });
     const retried = await resolveDesktopConflict(retryConflict.id, { action: "RETRY" }, "chaos-test");
     assert.equal(retried.status, "queued");
   } finally {
@@ -272,9 +291,10 @@ test("chaos: server conflict injection produces enriched metadata and UX actions
   }
 });
 
-test("chaos: restart during in-progress recovers operation and replays exactly once", async () => {
+test("chaos: restart during in-progress recovers operation and replays exactly once", serial, async () => {
   await resetState();
-  const row = await seedOperation("op-restart-1");
+  const operationId = uniqueOperationId("op-restart-1");
+  const row = await seedOperation(operationId);
   await updateLocalOperation(row.id, {
     status: "IN_PROGRESS",
     lastAttemptAt: new Date()
@@ -282,7 +302,7 @@ test("chaos: restart during in-progress recovers operation and replays exactly o
 
   const recoveredCount = await recoverInProgressLocalOperations();
   assert.equal(recoveredCount, 1);
-  const recovered = await prisma.localOperation.findUnique({ where: { operationId: "op-restart-1" } });
+  const recovered = await prisma.localOperation.findUnique({ where: { operationId } });
   assert.ok(recovered);
   assert.equal(recovered.status, "RETRY_SCHEDULED");
 
@@ -293,7 +313,7 @@ test("chaos: restart during in-progress recovers operation and replays exactly o
       throw new Error(`Unexpected URL: ${url}`);
     }
     const body = JSON.parse(init.body);
-    const found = body.changes.filter((change) => change.operationId === "op-restart-1");
+    const found = body.changes.filter((change) => change.operationId === operationId);
     seenCount += found.length;
     return jsonResponse(200, {
       data: {
@@ -307,7 +327,7 @@ test("chaos: restart during in-progress recovers operation and replays exactly o
 
   try {
     await pushPendingChanges();
-    const final = await prisma.localOperation.findUnique({ where: { operationId: "op-restart-1" } });
+    const final = await prisma.localOperation.findUnique({ where: { operationId } });
     assert.equal(final.status, "SYNCED");
     assert.equal(seenCount, 1);
   } finally {

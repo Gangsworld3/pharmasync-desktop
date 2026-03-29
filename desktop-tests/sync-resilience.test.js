@@ -7,8 +7,14 @@ import { appendLocalOperation, ensureDeviceState, updateLocalOperation } from ".
 import { pushPendingChanges } from "../src/services/sync-engine.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";
 
+const serial = { concurrency: false };
+
 async function resetLocalOperations() {
   await prisma.localOperation.deleteMany();
+}
+
+function uniqueOperationId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 }
 
 async function seedOperation(operationId) {
@@ -26,10 +32,11 @@ async function seedOperation(operationId) {
   });
 }
 
-test("schedules retry deterministically on transient push failure", async () => {
+test("schedules retry deterministically on transient push failure", serial, async () => {
   await ensureDeviceState();
   await resetLocalOperations();
-  await seedOperation("op-transient-retry");
+  const operationId = uniqueOperationId("op-transient-retry");
+  await seedOperation(operationId);
   saveDesktopSession({ accessToken: "test-access-token", email: "tester@example.com" });
 
   const originalFetch = globalThis.fetch;
@@ -39,7 +46,7 @@ test("schedules retry deterministically on transient push failure", async () => 
 
   try {
     await assert.rejects(pushPendingChanges);
-    const op = await prisma.localOperation.findUnique({ where: { operationId: "op-transient-retry" } });
+    const op = await prisma.localOperation.findUnique({ where: { operationId } });
     assert.ok(op);
     assert.equal(op.status, "RETRY_SCHEDULED");
     assert.ok(op.nextAttemptAt instanceof Date);
@@ -49,10 +56,11 @@ test("schedules retry deterministically on transient push failure", async () => 
   }
 });
 
-test("moves operation to dead-letter after max attempts", async () => {
+test("moves operation to dead-letter after max attempts", serial, async () => {
   await ensureDeviceState();
   await resetLocalOperations();
-  const op = await seedOperation("op-dead-letter");
+  const operationId = uniqueOperationId("op-dead-letter");
+  const op = await seedOperation(operationId);
   await updateLocalOperation(op.id, {
     attempts: 1,
     backoffMs: 2000,
@@ -68,7 +76,7 @@ test("moves operation to dead-letter after max attempts", async () => {
 
   try {
     await assert.rejects(pushPendingChanges);
-    const latest = await prisma.localOperation.findUnique({ where: { operationId: "op-dead-letter" } });
+    const latest = await prisma.localOperation.findUnique({ where: { operationId } });
     assert.ok(latest);
     assert.equal(latest.status, "DEAD_LETTER");
     assert.ok(latest.deadLetteredAt instanceof Date);
@@ -78,10 +86,11 @@ test("moves operation to dead-letter after max attempts", async () => {
   }
 });
 
-test("enriches conflict payload with field diff metadata", async () => {
+test("enriches conflict payload with field diff metadata", serial, async () => {
   await ensureDeviceState();
   await resetLocalOperations();
-  await seedOperation("op-conflict-diff");
+  const operationId = uniqueOperationId("op-conflict-diff");
+  await seedOperation(operationId);
   saveDesktopSession({ accessToken: "test-access-token", email: "tester@example.com" });
 
   const originalFetch = globalThis.fetch;
@@ -92,10 +101,10 @@ test("enriches conflict payload with field diff metadata", async () => {
         status: 200,
         text: async () => JSON.stringify({
           data: {
-            results: [{ operationId: "op-conflict-diff", status: "CONFLICT" }],
+            results: [{ operationId, status: "CONFLICT" }],
             conflicts: [{
               entityId: "inv-test-1",
-              local: { operationId: "op-conflict-diff", data: { quantity_on_hand: 5 } },
+              local: { operationId, data: { quantity_on_hand: 5 } },
               server: { quantity_on_hand: 2 },
               type: "INSUFFICIENT_STOCK",
               resolution: "Server inventory is lower"
@@ -113,7 +122,7 @@ test("enriches conflict payload with field diff metadata", async () => {
   try {
     const result = await pushPendingChanges();
     assert.equal(result.resultSummary.conflict, 1);
-    const op = await prisma.localOperation.findUnique({ where: { operationId: "op-conflict-diff" } });
+    const op = await prisma.localOperation.findUnique({ where: { operationId } });
     assert.ok(op);
     assert.equal(op.status, "CONFLICT");
     const payload = JSON.parse(op.conflictPayloadJson);
