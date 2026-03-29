@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlmodel import Session
 
+from app.core.config import settings
 from app.db.models import Appointment
 from app.db.repositories import (
     append_audit_log,
@@ -15,12 +18,35 @@ from app.db.repositories import (
 )
 
 
+def _appointment_zone() -> ZoneInfo:
+    try:
+        return ZoneInfo(settings.appointment_timezone)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def _normalize_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=_appointment_zone())
+    return value.astimezone(UTC)
+
+
+def _normalize_appointment_window(starts_at: datetime, ends_at: datetime) -> tuple[datetime, datetime]:
+    normalized_start = _normalize_datetime(starts_at)
+    normalized_end = _normalize_datetime(ends_at)
+    if normalized_end <= normalized_start:
+        raise ValueError("Appointment end time must be after start time.")
+    return normalized_start, normalized_end
+
+
 def create_appointment(
     session: Session,
     appointment: Appointment,
     device_id: str | None = None,
     actor_user_id: int | None = None,
 ) -> Appointment:
+    appointment.starts_at, appointment.ends_at = _normalize_appointment_window(appointment.starts_at, appointment.ends_at)
+
     if appointment.staff_name:
         conflict = find_appointment_conflict(
             session, appointment.staff_name, appointment.starts_at, appointment.ends_at
@@ -68,6 +94,13 @@ def update_appointment(
     appointment = get_active_by_id(session, Appointment, appointment_id)
     if not appointment:
         raise ValueError("Appointment not found.")
+
+    incoming_start = changes.get("starts_at", appointment.starts_at)
+    incoming_end = changes.get("ends_at", appointment.ends_at)
+    if isinstance(incoming_start, datetime) and isinstance(incoming_end, datetime):
+        normalized_start, normalized_end = _normalize_appointment_window(incoming_start, incoming_end)
+        changes["starts_at"] = normalized_start
+        changes["ends_at"] = normalized_end
 
     for field, value in changes.items():
         setattr(appointment, field, value)

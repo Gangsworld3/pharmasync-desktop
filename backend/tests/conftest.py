@@ -26,6 +26,8 @@ os.environ["PHARMASYNC_DATABASE_URL"] = TEST_DATABASE_URL
 os.environ.setdefault("PHARMASYNC_JWT_SECRET", "test-pharmasync-jwt-secret-32-bytes-min")
 os.environ.setdefault("PHARMASYNC_DEFAULT_ADMIN_EMAIL", "admin@pharmasync.local")
 os.environ.setdefault("PHARMASYNC_DEFAULT_ADMIN_PASSWORD", "Admin123!")
+os.environ.setdefault("PHARMASYNC_AUTH_LOGIN_LIMIT_PER_MINUTE", "10000")
+os.environ.setdefault("PHARMASYNC_AUTH_REFRESH_LIMIT_PER_MINUTE", "10000")
 
 
 def _psycopg_url(database_url: str) -> str:

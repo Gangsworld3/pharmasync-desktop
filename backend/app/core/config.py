@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     security_alert_timeout_seconds: int = 5
     sync_audit_hmac_secret: str | None = None
     appointment_timezone: str = "Africa/Juba"
+    appointment_slot_step_minutes: int = 15
+    appointment_workday_start_hour: int = 8
+    appointment_workday_end_hour: int = 18
+    appointment_suggestion_max_attempts: int = 672
     log_level: str = "INFO"
     default_admin_email: str = "admin@pharmasync.local"
     default_admin_password: str = _resolve_admin_password()
