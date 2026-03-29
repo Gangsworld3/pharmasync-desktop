@@ -13,6 +13,30 @@ on:
       - ".github/workflows/backend-tests.yml"
 
 jobs:
+  desktop-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      - name: Validate desktop database tooling
+        run: |
+          npm run db:generate
+          npm run db:push
+
+      - name: Syntax check desktop entrypoints
+        run: |
+          node --check server.js
+          node --check electron/main.js
+
   test:
     runs-on: ubuntu-latest
 

@@ -12,7 +12,7 @@ This repository includes:
 ## Run
 
 ```powershell
-cd "C:\Users\hp\Documents\New project\pharmasync-desktop"
+cd "C:\Users\hp\Documents\GitHub\pharmasync-desktop"
 npm start
 ```
 
@@ -25,14 +25,14 @@ The desktop runtime now includes an Electron wrapper and packaging configuration
 Development desktop shell:
 
 ```powershell
-cd "C:\Users\hp\Documents\New project\pharmasync-desktop"
+cd "C:\Users\hp\Documents\GitHub\pharmasync-desktop"
 npm run electron:dev
 ```
 
 Windows installer and portable build:
 
 ```powershell
-cd "C:\Users\hp\Documents\New project\pharmasync-desktop"
+cd "C:\Users\hp\Documents\GitHub\pharmasync-desktop"
 npm run dist
 ```
 
@@ -114,7 +114,7 @@ This phase adds a real local SQLite database through Prisma.
 Database commands:
 
 ```powershell
-cd "C:\Users\hp\Documents\New project\pharmasync-desktop"
+cd "C:\Users\hp\Documents\GitHub\pharmasync-desktop"
 npm run db:generate
 npm run db:push
 npm run db:seed
@@ -200,7 +200,7 @@ docker compose -f backend/docker-compose.postgres.yml up -d
 Run:
 
 ```powershell
-cd "C:\Users\hp\Documents\New project\pharmasync-desktop"
+cd "C:\Users\hp\Documents\GitHub\pharmasync-desktop"
 py -3 -m uvicorn app.main:app --app-dir backend --reload --port 8090
 ```
 
@@ -214,7 +214,7 @@ Render environment keys (backend expects `PHARMASYNC_*`):
 Alembic workflow:
 
 ```powershell
-cd "C:\Users\hp\Documents\New project\pharmasync-desktop"
+cd "C:\Users\hp\Documents\GitHub\pharmasync-desktop"
 py -3 -m alembic upgrade head
 ```
 
@@ -317,7 +317,7 @@ Test database:
 Run locally:
 
 ```powershell
-cd "C:\Users\hp\Documents\New project\pharmasync-desktop"
+cd "C:\Users\hp\Documents\GitHub\pharmasync-desktop"
 docker compose -f backend/docker-compose.postgres.yml up -d
 & "C:\Users\hp\AppData\Local\Python\bin\python.exe" -m pytest backend\tests -q
 ```

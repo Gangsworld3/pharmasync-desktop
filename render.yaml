@@ -1,12 +1,10 @@
 services:
   - type: web
     name: pharmasync-backend
-    runtime: python
+    env: docker
     plan: starter
+    autoDeploy: true
     region: frankfurt
-    rootDir: .
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 10000
     healthCheckPath: /health
     envVars:
       - key: PHARMASYNC_DATABASE_URL

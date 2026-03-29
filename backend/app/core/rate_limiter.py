@@ -35,6 +35,7 @@ class RedisRateLimiter:
         if Redis is None:
             raise RuntimeError("redis package not installed.")
         self._redis = Redis.from_url(redis_url, decode_responses=True)
+        self._redis.ping()
 
     def allow(self, key: str, *, limit: int, window_seconds: int) -> bool:
         namespaced_key = f"{settings.redis_key_prefix}:rate_limit:{key}"
@@ -48,10 +49,17 @@ class SafeRateLimiter:
     def __init__(self, redis_url: str | None) -> None:
         self._memory = InMemoryRateLimiter()
         self._redis: RedisRateLimiter | None = None
+        production = settings.env.strip().lower() == "production"
+
+        if production and not redis_url:
+            raise RuntimeError("PHARMASYNC_REDIS_URL is required in production.")
+
         if redis_url:
             try:
                 self._redis = RedisRateLimiter(redis_url)
             except Exception:  # noqa: BLE001
+                if production:
+                    raise RuntimeError("Redis is required and must be reachable in production.")
                 self._redis = None
 
     def allow(self, key: str, *, limit: int, window_seconds: int) -> bool:
