@@ -1,0 +1,15 @@
+[limits]
+max_file_lines = 500
+max_function_lines = 80
+
+[structure]
+enforce_layering = true
+
+[layers]
+"app.api" = ["app.api", "app.core", "app.services"]
+"app.services" = ["app.core", "app.db", "app.services"]
+"app.db" = ["app.core", "app.db"]
+
+[forbidden_imports]
+"app.db" = ["app.api"]
+"app.services" = ["app.api"]

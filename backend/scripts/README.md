@@ -49,3 +49,11 @@ Recover services:
 ```bash
 docker compose -f docker-compose.chaos.yml start redis postgres
 ```
+
+## Coverage Gate
+
+Validate backend statement coverage from CI/local runs:
+
+```bash
+python backend/scripts/check_coverage.py --input backend/coverage.json --min-statements 50
+```

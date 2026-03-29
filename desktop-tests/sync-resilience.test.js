@@ -131,3 +131,38 @@ test("enriches conflict payload with field diff metadata", serial, async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("keeps retry-scheduled operations deferred until nextAttemptAt", serial, async () => {
+  await ensureDeviceState();
+  await resetLocalOperations();
+  const operationId = uniqueOperationId("op-deferred");
+  const op = await seedOperation(operationId);
+  const futureAttemptAt = new Date(Date.now() + 60_000);
+  await updateLocalOperation(op.id, {
+    status: "RETRY_SCHEDULED",
+    attempts: 1,
+    backoffMs: 60_000,
+    nextAttemptAt: futureAttemptAt
+  });
+  saveDesktopSession({ accessToken: "test-access-token", email: "tester@example.com" });
+
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async () => {
+    called = true;
+    throw new Error("fetch should not be called for deferred operation");
+  };
+
+  try {
+    const result = await pushPendingChanges();
+    assert.equal(called, false);
+    assert.equal(result.pushed, 0);
+    assert.equal(result.deferred, 1);
+    assert.equal(result.deferredOperations.length, 1);
+    assert.equal(result.deferredOperations[0].operationId, operationId);
+    assert.equal(result.deferredOperations[0].status, "RETRY_SCHEDULED");
+    assert.ok(result.deferredOperations[0].nextAttemptAt);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
