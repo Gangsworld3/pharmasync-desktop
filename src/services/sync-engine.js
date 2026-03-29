@@ -31,6 +31,9 @@ import { pushPendingChanges as pushPendingChangesPipeline } from "./sync-push-se
 import { pullServerChanges as pullServerChangesPipeline } from "./sync-pull-service.js";
 import { runSyncCycle as runSyncCyclePipeline } from "./sync-cycle-runner.js";
 import { startLoop, stopLoop } from "./sync-loop.js";
+import { createOperationRepoPort } from "./ports/operation-repo.port.js";
+import { createApiClientPort } from "./ports/api-client.port.js";
+import { createClockPort } from "./ports/clock.port.js";
 
 let syncTimer = null;
 let syncInFlight = false;
@@ -52,6 +55,7 @@ const DEFAULT_MAX_OPERATION_ATTEMPTS = 8;
 const DEFAULT_REALTIME_RETRY_BASE_MS = 3000;
 const DEFAULT_REALTIME_RETRY_MAX_MS = 120000;
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const clockPort = createClockPort();
 
 function getRemoteConfig() {
   const settings = getDesktopSettings();
@@ -107,6 +111,19 @@ function parseJsonSafe(raw) {
   } catch {
     return {};
   }
+}
+
+function buildRepoPort() {
+  return createOperationRepoPort({
+    ensureDeviceState,
+    getPendingLocalOperations,
+    getConflictLocalOperations,
+    recoverInProgressLocalOperations,
+    updateDeviceState,
+    applyOperationTransition,
+    applyServerChange,
+    appendLocalOperation
+  });
 }
 
 async function applyOperationTransition(operation, event, context = {}) {
@@ -422,20 +439,22 @@ export async function recordLocalOperation(entry) {
 
 function buildPushContext() {
   return {
-    ensureDeviceState,
-    getRemoteConfig,
-    getPendingLocalOperations,
-    shouldRetry,
-    getDeferredState,
-    sanitizePositiveNumber,
-    defaultPushBatchSize: DEFAULT_PUSH_BATCH_SIZE,
-    buildSyncChange,
-    authorizedJsonRequest,
-    applyOperationTransition,
-    mapConflict,
-    applyServerChange,
-    sortServerChanges,
-    defaultMaxOperationAttempts: DEFAULT_MAX_OPERATION_ATTEMPTS
+    repo: buildRepoPort(),
+    api: createApiClientPort({ authorizedJsonRequest }),
+    clock: clockPort,
+    config: { get: getRemoteConfig },
+    policy: {
+      defaultPushBatchSize: DEFAULT_PUSH_BATCH_SIZE,
+      defaultMaxOperationAttempts: DEFAULT_MAX_OPERATION_ATTEMPTS
+    },
+    helpers: {
+      shouldRetry,
+      getDeferredState,
+      sanitizePositiveNumber,
+      buildSyncChange,
+      mapConflict,
+      sortServerChanges
+    }
   };
 }
 
@@ -466,12 +485,10 @@ async function applyServerChange(change) {
 
 function buildPullContext() {
   return {
-    ensureDeviceState,
-    authorizedJsonRequest,
-    sortServerChanges,
-    applyServerChange,
-    updateDeviceState,
-    getRemoteConfig
+    repo: buildRepoPort(),
+    api: createApiClientPort({ authorizedJsonRequest }),
+    config: { get: getRemoteConfig },
+    helpers: { sortServerChanges }
   };
 }
 
@@ -481,24 +498,33 @@ export async function pullServerChanges() {
 
 function buildCycleContext() {
   return {
-    getSyncInFlight: () => syncInFlight,
-    setSyncInFlight: (value) => { syncInFlight = value; },
-    ensureDeviceState,
-    recoverInProgressLocalOperations,
-    markSyncStart,
-    pushPendingChanges,
-    pullServerChanges,
-    markSyncFinish,
-    getConflictLocalOperations,
-    clearAuthToken: () => { authToken = null; },
-    getRemoteConfig,
-    sanitizePositiveNumber,
-    defaultRetryMaxMs: DEFAULT_RETRY_MAX_MS,
-    jitterMs,
-    getRetryBackoffMs: () => retryBackoffMs,
-    setRetryBackoffMs: (value) => { retryBackoffMs = value; },
-    setNextScheduledAt: (value) => { nextScheduledAt = value; },
-    markSyncFailure
+    state: {
+      getSyncInFlight: () => syncInFlight,
+      setSyncInFlight: (value) => { syncInFlight = value; },
+      getRetryBackoffMs: () => retryBackoffMs,
+      setRetryBackoffMs: (value) => { retryBackoffMs = value; },
+      setNextScheduledAt: (value) => { nextScheduledAt = value; }
+    },
+    repo: buildRepoPort(),
+    cycle: {
+      pushPendingChanges,
+      pullServerChanges
+    },
+    auth: {
+      clear: () => { authToken = null; }
+    },
+    config: { get: getRemoteConfig },
+    clock: clockPort,
+    policy: {
+      sanitizePositiveNumber,
+      defaultRetryMaxMs: DEFAULT_RETRY_MAX_MS,
+      jitterMs
+    },
+    lifecycle: {
+      markSyncStart,
+      markSyncFinish,
+      markSyncFailure
+    }
   };
 }
 
@@ -533,15 +559,22 @@ export async function getSyncEngineStatus() {
 
 function buildLoopContext() {
   return {
-    ensureDeviceState,
-    getSyncTimer: () => syncTimer,
-    setSyncTimer: (value) => { syncTimer = value; },
-    startRealtimeSyncListener,
-    runSyncCycle,
-    getRetryBackoffMs: () => retryBackoffMs,
-    setNextScheduledAt: (value) => { nextScheduledAt = value; },
-    getRemoteConfig,
-    stopRealtimeSyncListener
+    repo: buildRepoPort(),
+    state: {
+      getSyncTimer: () => syncTimer,
+      setSyncTimer: (value) => { syncTimer = value; },
+      getRetryBackoffMs: () => retryBackoffMs,
+      setNextScheduledAt: (value) => { nextScheduledAt = value; }
+    },
+    realtime: {
+      start: startRealtimeSyncListener,
+      stop: stopRealtimeSyncListener
+    },
+    cycle: {
+      runSyncCycle
+    },
+    config: { get: getRemoteConfig },
+    clock: clockPort
   };
 }
 

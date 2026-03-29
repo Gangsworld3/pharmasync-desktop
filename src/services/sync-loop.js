@@ -1,47 +1,31 @@
-export async function startLoop(context, intervalMs = null) {
-  const {
-    ensureDeviceState,
-    getSyncTimer,
-    setSyncTimer,
-    startRealtimeSyncListener,
-    runSyncCycle,
-    getRetryBackoffMs,
-    setNextScheduledAt,
-    getRemoteConfig
-  } = context;
-
-  await ensureDeviceState();
+export async function startLoop({ repo, state, realtime, cycle, config, clock }, intervalMs = null) {
+  await repo.ensureDeviceState();
+  const { getSyncTimer, setSyncTimer, getRetryBackoffMs, setNextScheduledAt } = state;
   if (getSyncTimer()) {
     return;
   }
 
-  await startRealtimeSyncListener();
+  await realtime.start();
 
   const schedule = async () => {
-    await runSyncCycle().catch(() => {});
-    const nextDelay = getRetryBackoffMs() || Number(intervalMs ?? getRemoteConfig().syncIntervalMs);
-    setNextScheduledAt(new Date(Date.now() + nextDelay));
-    setSyncTimer(setTimeout(schedule, nextDelay));
+    await cycle.runSyncCycle().catch(() => {});
+    const nextDelay = getRetryBackoffMs() || Number(intervalMs ?? config.get().syncIntervalMs);
+    setNextScheduledAt(new Date(clock.nowMs() + nextDelay));
+    setSyncTimer(clock.setTimeout(schedule, nextDelay));
   };
 
-  const initialDelay = Number(intervalMs ?? getRemoteConfig().syncIntervalMs);
-  setNextScheduledAt(new Date(Date.now() + initialDelay));
-  setSyncTimer(setTimeout(schedule, initialDelay));
+  const initialDelay = Number(intervalMs ?? config.get().syncIntervalMs);
+  setNextScheduledAt(new Date(clock.nowMs() + initialDelay));
+  setSyncTimer(clock.setTimeout(schedule, initialDelay));
 }
 
-export function stopLoop(context) {
-  const {
-    getSyncTimer,
-    setSyncTimer,
-    stopRealtimeSyncListener,
-    setNextScheduledAt
-  } = context;
-
+export function stopLoop({ state, realtime, clock }) {
+  const { getSyncTimer, setSyncTimer, setNextScheduledAt } = state;
   const timer = getSyncTimer();
   if (timer) {
-    clearTimeout(timer);
+    clock.clearTimeout(timer);
     setSyncTimer(null);
   }
-  stopRealtimeSyncListener();
+  realtime.stop();
   setNextScheduledAt(null);
 }

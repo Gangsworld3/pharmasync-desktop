@@ -13,3 +13,7 @@ enforce_layering = true
 [forbidden_imports]
 "app.db" = ["app.api"]
 "app.services" = ["app.api"]
+"src/services/sync-push-service.js" = ["src/services/sync-pull-service.js", "src/services/sync-cycle-runner.js", "src/services/sync-engine.js"]
+"src/services/sync-pull-service.js" = ["src/services/sync-push-service.js", "src/services/sync-cycle-runner.js", "src/services/sync-engine.js"]
+"src/services/sync-cycle-runner.js" = ["src/services/sync-engine.js"]
+"src/services/sync-loop.js" = ["src/services/sync-engine.js"]

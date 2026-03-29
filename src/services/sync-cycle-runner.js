@@ -1,39 +1,28 @@
-export async function runSyncCycle(context) {
+import { computeCycleBackoffMs } from "./sync-shared/error-classification.js";
+
+export async function runSyncCycle({ state, repo, cycle, auth, config, clock, policy, lifecycle }) {
   const {
     getSyncInFlight,
     setSyncInFlight,
-    ensureDeviceState,
-    recoverInProgressLocalOperations,
-    markSyncStart,
-    pushPendingChanges,
-    pullServerChanges,
-    markSyncFinish,
-    getConflictLocalOperations,
-    clearAuthToken,
-    getRemoteConfig,
-    sanitizePositiveNumber,
-    defaultRetryMaxMs,
-    jitterMs,
     getRetryBackoffMs,
     setRetryBackoffMs,
-    setNextScheduledAt,
-    markSyncFailure
-  } = context;
+    setNextScheduledAt
+  } = state;
 
   if (getSyncInFlight()) {
     return { status: "skipped", reason: "sync_in_progress" };
   }
 
   setSyncInFlight(true);
-  const deviceState = await ensureDeviceState();
+  const deviceState = await repo.ensureDeviceState();
 
   try {
-    await recoverInProgressLocalOperations();
-    await markSyncStart(deviceState);
-    const pushResult = await pushPendingChanges();
-    const pullResult = await pullServerChanges();
+    await repo.recoverInProgressOperations();
+    await lifecycle.markSyncStart(deviceState);
+    const pushResult = await cycle.pushPendingChanges();
+    const pullResult = await cycle.pullServerChanges();
     const latestRevision = Math.max(pushResult.revision ?? 0, pullResult.revision ?? 0);
-    await markSyncFinish(deviceState, latestRevision);
+    await lifecycle.markSyncFinish(deviceState, latestRevision);
     setRetryBackoffMs(0);
     setNextScheduledAt(null);
 
@@ -41,22 +30,25 @@ export async function runSyncCycle(context) {
       status: "success",
       push: pushResult,
       pull: pullResult,
-      conflicts: await getConflictLocalOperations(),
+      conflicts: await repo.listConflictOperations(),
       retryBackoffMs: getRetryBackoffMs(),
       nextScheduledAt: null
     };
   } catch (error) {
-    clearAuthToken();
-    const { syncIntervalMs, retryMaxMs } = getRemoteConfig();
-    const retryMax = sanitizePositiveNumber(retryMaxMs, defaultRetryMaxMs);
+    auth.clear();
+    const runtimeConfig = config.get();
+    const retryMax = policy.sanitizePositiveNumber(runtimeConfig.retryMaxMs, policy.defaultRetryMaxMs);
     const currentRetryBackoff = getRetryBackoffMs();
-    const nextBackoff = currentRetryBackoff
-      ? Math.min(jitterMs(currentRetryBackoff * 2), retryMax)
-      : Math.min(jitterMs(syncIntervalMs * 2), retryMax);
-    const nextRetryAt = new Date(Date.now() + nextBackoff);
+    const nextBackoff = computeCycleBackoffMs({
+      currentRetryBackoffMs: currentRetryBackoff,
+      syncIntervalMs: runtimeConfig.syncIntervalMs,
+      retryMaxMs: retryMax,
+      jitterMs: policy.jitterMs
+    });
+    const nextRetryAt = new Date(clock.nowMs() + nextBackoff);
     setRetryBackoffMs(nextBackoff);
     setNextScheduledAt(nextRetryAt);
-    await markSyncFailure(deviceState, error);
+    await lifecycle.markSyncFailure(deviceState, error);
     return {
       status: "error",
       error: error.message,
