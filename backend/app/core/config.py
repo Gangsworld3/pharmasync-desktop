@@ -60,7 +60,15 @@ class Settings(BaseSettings):
     env: str = os.getenv("ENV", "development")
     jwt_secret: str = _resolve_jwt_secret()
     jwt_algorithm: str = "HS256"
-    jwt_exp_minutes: int = 720
+    access_token_exp_minutes: int = 15
+    refresh_token_exp_days: int = 7
+    auth_login_limit_per_minute: int = 20
+    auth_refresh_limit_per_minute: int = 60
+    redis_url: str | None = None
+    redis_key_prefix: str = "pharmasync"
+    security_alert_webhook_url: str | None = None
+    security_alert_timeout_seconds: int = 5
+    log_level: str = "INFO"
     default_admin_email: str = "admin@pharmasync.local"
     default_admin_password: str = _resolve_admin_password()
     database_url: str = _resolve_database_url()

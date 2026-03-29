@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Integer, Numeric, String, Text, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, text
 from sqlmodel import Field, SQLModel
 
 
@@ -32,6 +32,12 @@ class Client(SQLModel, table=True):
 
 class InventoryItem(SQLModel, table=True):
     __tablename__ = "inventory_items"
+    __table_args__ = (
+        CheckConstraint("quantity_on_hand >= 0", name="ck_inventory_items_quantity_on_hand_non_negative"),
+        CheckConstraint("reorder_level >= 0", name="ck_inventory_items_reorder_level_non_negative"),
+        CheckConstraint("unit_cost_minor >= 0", name="ck_inventory_items_unit_cost_non_negative"),
+        CheckConstraint("sale_price_minor >= 0", name="ck_inventory_items_sale_price_non_negative"),
+    )
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
     sku: str = Field(sa_column=Column(String(64), nullable=False, unique=True, index=True))
@@ -51,6 +57,10 @@ class InventoryItem(SQLModel, table=True):
 
 class Invoice(SQLModel, table=True):
     __tablename__ = "invoices"
+    __table_args__ = (
+        CheckConstraint("total_minor >= 0", name="ck_invoices_total_non_negative"),
+        CheckConstraint("balance_due_minor >= 0", name="ck_invoices_balance_due_non_negative"),
+    )
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
     invoice_number: str = Field(sa_column=Column(String(64), nullable=False, unique=True, index=True))
@@ -69,6 +79,11 @@ class Invoice(SQLModel, table=True):
 
 class InvoiceLineItem(SQLModel, table=True):
     __tablename__ = "invoice_line_items"
+    __table_args__ = (
+        CheckConstraint("quantity > 0", name="ck_invoice_line_items_quantity_positive"),
+        CheckConstraint("unit_price_minor >= 0", name="ck_invoice_line_items_unit_price_non_negative"),
+        CheckConstraint("line_total_minor >= 0", name="ck_invoice_line_items_line_total_non_negative"),
+    )
 
     id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
     invoice_id: str = Field(foreign_key="invoices.id", index=True)
@@ -144,6 +159,34 @@ class User(SQLModel, table=True):
     deleted_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
 
 
+class RefreshToken(SQLModel, table=True):
+    __tablename__ = "refresh_tokens"
+
+    id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    user_id: int = Field(sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=False, index=True))
+    token_hash: str = Field(sa_column=Column(String(128), nullable=False, unique=True, index=True))
+    jti: str = Field(sa_column=Column(String(64), nullable=False, unique=True, index=True))
+    expires_at: datetime = Field(sa_column=Column(DateTime(timezone=True), nullable=False))
+    revoked_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
+    replaced_by_token_id: Optional[str] = Field(default=None, foreign_key="refresh_tokens.id")
+    created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+
+
+class IdempotencyKey(SQLModel, table=True):
+    __tablename__ = "idempotency_keys"
+
+    id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    endpoint: str = Field(sa_column=Column(String(128), nullable=False, index=True))
+    key: str = Field(sa_column=Column(String(128), nullable=False, unique=True, index=True))
+    request_hash: str = Field(sa_column=Column(String(128), nullable=False))
+    status_code: int = Field(sa_column=Column(Integer, nullable=False))
+    response_json: str = Field(sa_column=Column(Text, nullable=False))
+    created_at: datetime = Field(
+        default_factory=utc_now,
+        sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")),
+    )
+
+
 class SyncEvent(SQLModel, table=True):
     __tablename__ = "sync_events"
 
@@ -178,4 +221,16 @@ class ConflictQueue(SQLModel, table=True):
     payload_json: str = Field(sa_column=Column(Text, nullable=False))
     requires_user_action: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, server_default=text("true")))
     resolved: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=text("false")))
+    created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+
+
+class AuditLog(SQLModel, table=True):
+    __tablename__ = "audit_logs"
+
+    id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
+    user_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=True))
+    action: str = Field(sa_column=Column(String(128), nullable=False, index=True))
+    table_name: str = Field(sa_column=Column(String(128), nullable=False, index=True))
+    record_id: str = Field(sa_column=Column(String(64), nullable=False, index=True))
+    payload_json: Optional[str] = Field(default=None, sa_column=Column(Text, nullable=True))
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))

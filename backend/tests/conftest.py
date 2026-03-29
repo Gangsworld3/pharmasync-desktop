@@ -74,10 +74,13 @@ def db_session():
     from app.services.auth_service import ensure_default_admin
 
     table_names = [
+        "idempotency_keys",
+        "refresh_tokens",
         "invoice_line_items",
         "appointments",
         "conflict_queue",
         "message_events",
+        "audit_logs",
         "messages",
         "invoices",
         "inventory_items",

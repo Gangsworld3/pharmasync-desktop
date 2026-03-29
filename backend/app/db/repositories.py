@@ -8,13 +8,16 @@ from sqlmodel import Session, select
 
 from app.db.models import (
     Appointment,
+    AuditLog,
     Client,
     ConflictQueue,
+    IdempotencyKey,
     InventoryItem,
     Invoice,
     InvoiceLineItem,
     Message,
     MessageEvent,
+    RefreshToken,
     ServerState,
     SyncEvent,
     User,
@@ -67,6 +70,15 @@ def get_user_by_email(session: Session, email: str) -> User | None:
 def get_inventory_by_sku(session: Session, sku: str) -> InventoryItem | None:
     return session.exec(
         select(InventoryItem).where(InventoryItem.sku == sku).where(InventoryItem.deleted_at.is_(None))
+    ).first()
+
+
+def get_inventory_by_sku_for_update(session: Session, sku: str) -> InventoryItem | None:
+    return session.exec(
+        select(InventoryItem)
+        .where(InventoryItem.sku == sku)
+        .where(InventoryItem.deleted_at.is_(None))
+        .with_for_update()
     ).first()
 
 
@@ -213,3 +225,102 @@ def resolve_conflict(session: Session, conflict_id: str) -> ConflictQueue | None
     session.commit()
     session.refresh(conflict)
     return conflict
+
+
+def append_audit_log(
+    session: Session,
+    *,
+    action: str,
+    table_name: str,
+    record_id: str,
+    user_id: int | None = None,
+    payload: dict[str, Any] | None = None,
+) -> AuditLog:
+    log = AuditLog(
+        user_id=user_id,
+        action=action,
+        table_name=table_name,
+        record_id=record_id,
+        payload_json=json.dumps(payload, default=str) if payload is not None else None,
+    )
+    session.add(log)
+    session.flush()
+    return log
+
+
+def get_refresh_token_by_hash(session: Session, token_hash: str) -> RefreshToken | None:
+    return session.exec(select(RefreshToken).where(RefreshToken.token_hash == token_hash)).first()
+
+
+def revoke_refresh_token(
+    session: Session, token: RefreshToken, *, replaced_by_token_id: str | None = None
+) -> RefreshToken:
+    token.revoked_at = utc_now()
+    token.replaced_by_token_id = replaced_by_token_id
+    session.add(token)
+    session.flush()
+    return token
+
+
+def get_idempotency_key(session: Session, *, endpoint: str, key: str) -> IdempotencyKey | None:
+    return session.exec(
+        select(IdempotencyKey)
+        .where(IdempotencyKey.endpoint == endpoint)
+        .where(IdempotencyKey.key == key)
+    ).first()
+
+
+def create_idempotency_key(
+    session: Session,
+    *,
+    endpoint: str,
+    key: str,
+    request_hash: str,
+    status_code: int,
+    response_json: str,
+) -> IdempotencyKey:
+    record = IdempotencyKey(
+        endpoint=endpoint,
+        key=key,
+        request_hash=request_hash,
+        status_code=status_code,
+        response_json=response_json,
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
+def revoke_all_refresh_tokens_for_user(session: Session, user_id: int) -> int:
+    tokens = list(
+        session.exec(
+            select(RefreshToken)
+            .where(RefreshToken.user_id == user_id)
+            .where(RefreshToken.revoked_at.is_(None))
+        )
+    )
+    now = utc_now()
+    for token in tokens:
+        token.revoked_at = now
+        session.add(token)
+    session.flush()
+    return len(tokens)
+
+
+def create_refresh_token_record(
+    session: Session,
+    *,
+    user_id: int,
+    token_hash: str,
+    jti: str,
+    expires_at: datetime,
+) -> RefreshToken:
+    token = RefreshToken(
+        user_id=user_id,
+        token_hash=token_hash,
+        jti=jti,
+        expires_at=expires_at,
+    )
+    session.add(token)
+    session.flush()
+    return token

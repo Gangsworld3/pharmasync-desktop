@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.api.deps import SessionDep, get_current_user
+from app.api.deps import SessionDep, get_current_user, require_role
 from app.api.responses import success_response
-from app.db.models import MessageEvent
+from app.db.models import MessageEvent, User
 from app.services.crud_service import create_entity, get_entity, list_entities
 
 
@@ -31,5 +31,17 @@ def get_message(message_id: str, session: SessionDep):
 
 
 @router.post("")
-def create_message(payload: MessagePayload, session: SessionDep):
-    return success_response(create_entity(session, "messages", MessageEvent(**payload.model_dump())), status_code=201)
+def create_message(
+    payload: MessagePayload,
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist")),
+):
+    return success_response(
+        create_entity(
+            session,
+            "messages",
+            MessageEvent(**payload.model_dump()),
+            actor_user_id=current_user.id,
+        ),
+        status_code=201,
+    )

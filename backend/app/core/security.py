@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import secrets
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import jwt
 
@@ -27,11 +28,43 @@ def create_access_token(subject: str, role: str) -> str:
     payload = {
         "sub": subject,
         "role": role,
+        "typ": "access",
         "iat": now,
-        "exp": now + timedelta(minutes=settings.jwt_exp_minutes),
+        "exp": now + timedelta(minutes=settings.access_token_exp_minutes),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_refresh_token(subject: str, role: str) -> tuple[str, str, datetime]:
+    now = datetime.now(UTC)
+    jti = uuid4().hex
+    expires_at = now + timedelta(days=settings.refresh_token_exp_days)
+    payload = {
+        "sub": subject,
+        "role": role,
+        "jti": jti,
+        "typ": "refresh",
+        "iat": now,
+        "exp": expires_at,
+    }
+    return (
+        jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm),
+        jti,
+        expires_at,
+    )
+
+
+def decode_token(token: str, *, expected_type: str | None = None) -> dict:
+    payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    token_type = payload.get("typ")
+    if expected_type and token_type != expected_type:
+        raise ValueError(f"Invalid token type: expected {expected_type}, got {token_type}.")
+    return payload
+
+
 def decode_access_token(token: str) -> dict:
-    return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    return decode_token(token, expected_type="access")
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()

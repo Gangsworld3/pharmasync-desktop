@@ -15,11 +15,17 @@ services:
           property: connectionString
       - key: PHARMASYNC_JWT_SECRET
         generateValue: true
+      - key: PHARMASYNC_REDIS_URL
+        sync: false
+      - key: PHARMASYNC_REDIS_KEY_PREFIX
+        value: pharmasync
+      - key: PHARMASYNC_SECURITY_ALERT_WEBHOOK_URL
+        sync: false
       - key: PHARMASYNC_APP_NAME
         value: PharmaSync FastAPI
       - key: ENV
         value: production
-      - key: LOG_LEVEL
+      - key: PHARMASYNC_LOG_LEVEL
         value: info
 
 databases:

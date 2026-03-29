@@ -6,6 +6,7 @@ from sqlmodel import Session
 
 from app.db.models import Appointment
 from app.db.repositories import (
+    append_audit_log,
     append_sync_event,
     apply_server_revision,
     find_appointment_conflict,
@@ -14,7 +15,12 @@ from app.db.repositories import (
 )
 
 
-def create_appointment(session: Session, appointment: Appointment, device_id: str | None = None) -> Appointment:
+def create_appointment(
+    session: Session,
+    appointment: Appointment,
+    device_id: str | None = None,
+    actor_user_id: int | None = None,
+) -> Appointment:
     if appointment.staff_name:
         conflict = find_appointment_conflict(
             session, appointment.staff_name, appointment.starts_at, appointment.ends_at
@@ -36,6 +42,14 @@ def create_appointment(session: Session, appointment: Appointment, device_id: st
         )
         apply_server_revision(appointment, event.server_revision or 0)
         session.add(appointment)
+        append_audit_log(
+            session,
+            action="Appointment.CREATE",
+            table_name="appointments",
+            record_id=str(appointment.id),
+            user_id=actor_user_id,
+            payload=appointment.model_dump(mode="json"),
+        )
         session.commit()
         session.refresh(appointment)
         return appointment
@@ -44,7 +58,13 @@ def create_appointment(session: Session, appointment: Appointment, device_id: st
         raise
 
 
-def update_appointment(session: Session, appointment_id: str, changes: dict, device_id: str | None = None) -> Appointment:
+def update_appointment(
+    session: Session,
+    appointment_id: str,
+    changes: dict,
+    device_id: str | None = None,
+    actor_user_id: int | None = None,
+) -> Appointment:
     appointment = get_active_by_id(session, Appointment, appointment_id)
     if not appointment:
         raise ValueError("Appointment not found.")
@@ -76,6 +96,14 @@ def update_appointment(session: Session, appointment_id: str, changes: dict, dev
         )
         apply_server_revision(appointment, event.server_revision or 0)
         session.add(appointment)
+        append_audit_log(
+            session,
+            action="Appointment.UPDATE",
+            table_name="appointments",
+            record_id=str(appointment.id),
+            user_id=actor_user_id,
+            payload=changes,
+        )
         session.commit()
         session.refresh(appointment)
         return appointment

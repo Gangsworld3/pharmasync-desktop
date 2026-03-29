@@ -1,0 +1,44 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pharmasync-backend-chaos
+    environment:
+      ENV: production
+      PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@postgres:5432/pharmasync
+      PHARMASYNC_JWT_SECRET: chaos-local-jwt-secret-please-change
+      PHARMASYNC_DEFAULT_ADMIN_PASSWORD: Admin123!
+      PHARMASYNC_REDIS_URL: redis://redis:6379/0
+      PHARMASYNC_REDIS_KEY_PREFIX: pharmasync
+      PHARMASYNC_LOG_LEVEL: INFO
+    ports:
+      - "10000:10000"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:15
+    container_name: pharmasync-postgres-chaos
+    environment:
+      POSTGRES_USER: pharma
+      POSTGRES_PASSWORD: secure123
+      POSTGRES_DB: pharmasync
+    ports:
+      - "5432:5432"
+    volumes:
+      - pharmasync-chaos-postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: pharmasync-redis-chaos
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - pharmasync-chaos-redis-data:/data
+
+volumes:
+  pharmasync-chaos-postgres-data:
+  pharmasync-chaos-redis-data:

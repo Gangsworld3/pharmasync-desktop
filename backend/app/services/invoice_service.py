@@ -8,10 +8,11 @@ from sqlmodel import Session
 
 from app.db.models import InventoryItem, Invoice, InvoiceLineItem
 from app.db.repositories import (
+    append_audit_log,
     append_sync_event,
     apply_server_revision,
     get_active_by_id,
-    get_inventory_by_sku,
+    get_inventory_by_sku_for_update,
     list_invoice_items,
     touch_for_update,
     utc_now,
@@ -39,6 +40,7 @@ def create_invoice(
     items: list[InvoiceItemInput],
     device_id: str | None = None,
     operation_id: str | None = None,
+    actor_user_id: int | None = None,
     auto_commit: bool = True,
 ) -> Invoice:
     if not items:
@@ -49,7 +51,7 @@ def create_invoice(
         total = 0
 
         for item_input in items:
-            inventory = get_inventory_by_sku(session, item_input.inventory_sku)
+            inventory = get_inventory_by_sku_for_update(session, item_input.inventory_sku)
             if not inventory:
                 raise ValueError(f"Inventory SKU {item_input.inventory_sku} not found.")
 
@@ -115,6 +117,26 @@ def create_invoice(
             if inventory:
                 apply_server_revision(inventory, inventory_event.server_revision or 0)
                 session.add(inventory)
+
+        append_audit_log(
+            session,
+            action="Invoice.CREATE",
+            table_name="invoices",
+            record_id=str(invoice.id),
+            user_id=actor_user_id,
+            payload={
+                "invoice_number": invoice.invoice_number,
+                "total_minor": invoice.total_minor,
+                "line_items": [
+                    {
+                        "inventory_item_id": line_item.inventory_item_id,
+                        "quantity": str(line_item.quantity),
+                        "line_total_minor": line_item.line_total_minor,
+                    }
+                    for line_item in line_items
+                ],
+            },
+        )
 
         if auto_commit:
             session.commit()

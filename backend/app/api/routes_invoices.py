@@ -1,11 +1,16 @@
+import hashlib
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import SessionDep, get_current_user
+from app.api.deps import SessionDep, get_current_user, require_role
 from app.api.responses import success_response
-from app.db.models import Invoice
+from app.db.models import Invoice, User
+from app.db.repositories import create_idempotency_key, get_idempotency_key
 from app.services.crud_service import delete_entity, list_entities
 from app.services.invoice_service import InvoiceItemInput, create_invoice, get_invoice_detail
 
@@ -44,8 +49,34 @@ def get_invoice(invoice_id: str, session: SessionDep):
 
 
 @router.post("")
-def create_invoice_route(payload: InvoicePayload, session: SessionDep):
+def create_invoice_route(
+    payload: InvoicePayload,
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist")),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
     try:
+        endpoint = "POST:/invoices"
+        request_hash = hashlib.sha256(payload.model_dump_json().encode()).hexdigest()
+        if idempotency_key:
+            # Serialize same-key requests in the database so replay is safe under concurrency.
+            session.exec(
+                text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                params={"lock_key": f"{endpoint}:{idempotency_key}"},
+            )
+            existing = get_idempotency_key(session, endpoint=endpoint, key=idempotency_key)
+            if existing:
+                if existing.request_hash != request_hash:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Idempotency-Key reused with different payload.",
+                    )
+                return Response(
+                    content=existing.response_json,
+                    status_code=existing.status_code,
+                    media_type="application/json",
+                )
+
         invoice = Invoice(
             invoice_number=payload.invoice_number,
             client_id=payload.client_id,
@@ -55,21 +86,59 @@ def create_invoice_route(payload: InvoicePayload, session: SessionDep):
             payment_method=payload.payment_method,
             status=payload.status,
         )
-        return success_response(
-            create_invoice(
-                session,
-                invoice,
-                [InvoiceItemInput(**item.model_dump()) for item in payload.items],
-            ),
-            status_code=201,
+        items = [InvoiceItemInput(**item.model_dump()) for item in payload.items]
+
+        if not idempotency_key:
+            return success_response(
+                create_invoice(
+                    session,
+                    invoice,
+                    items,
+                    actor_user_id=current_user.id,
+                ),
+                status_code=201,
+            )
+
+        created = create_invoice(
+            session,
+            invoice,
+            items,
+            actor_user_id=current_user.id,
+            auto_commit=False,
         )
+        response = success_response(created, status_code=201)
+        create_idempotency_key(
+            session,
+            endpoint=endpoint,
+            key=idempotency_key,
+            request_hash=request_hash,
+            status_code=response.status_code,
+            response_json=response.body.decode(),
+        )
+        session.commit()
+        return response
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError:
+        session.rollback()
+        if idempotency_key:
+            existing = get_idempotency_key(session, endpoint=endpoint, key=idempotency_key)
+            if existing and existing.request_hash == request_hash:
+                return Response(
+                    content=existing.response_json,
+                    status_code=existing.status_code,
+                    media_type="application/json",
+                )
+        raise HTTPException(status_code=409, detail="Request could not be applied safely.")
 
 
 @router.delete("/{invoice_id}")
-def delete_invoice(invoice_id: str, session: SessionDep):
+def delete_invoice(
+    invoice_id: str,
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin")),
+):
     try:
-        return success_response(delete_entity(session, "invoices", invoice_id))
+        return success_response(delete_entity(session, "invoices", invoice_id, actor_user_id=current_user.id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

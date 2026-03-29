@@ -8,6 +8,7 @@ from sqlmodel import Session
 from app.db.models import Appointment, Client, InventoryItem, Invoice, MessageEvent
 from app.db.repositories import (
     RESOURCE_MODELS,
+    append_audit_log,
     append_sync_event,
     apply_server_revision,
     get_active_by_id,
@@ -37,7 +38,13 @@ def get_entity(session: Session, resource: str, entity_id: str) -> Any:
     return entity
 
 
-def create_entity(session: Session, resource: str, entity: Any, device_id: str | None = None) -> Any:
+def create_entity(
+    session: Session,
+    resource: str,
+    entity: Any,
+    device_id: str | None = None,
+    actor_user_id: int | None = None,
+) -> Any:
     try:
         session.add(entity)
         session.flush()
@@ -52,6 +59,14 @@ def create_entity(session: Session, resource: str, entity: Any, device_id: str |
         )
         apply_server_revision(entity, event.server_revision or 0)
         session.add(entity)
+        append_audit_log(
+            session,
+            action=f"{entity.__class__.__name__}.CREATE",
+            table_name=entity.__class__.__tablename__,
+            record_id=str(entity.id),
+            user_id=actor_user_id,
+            payload=entity.model_dump(mode="json"),
+        )
         session.commit()
         session.refresh(entity)
         return entity
@@ -60,7 +75,14 @@ def create_entity(session: Session, resource: str, entity: Any, device_id: str |
         raise
 
 
-def update_entity(session: Session, resource: str, entity_id: str, changes: dict[str, Any], device_id: str | None = None) -> Any:
+def update_entity(
+    session: Session,
+    resource: str,
+    entity_id: str,
+    changes: dict[str, Any],
+    device_id: str | None = None,
+    actor_user_id: int | None = None,
+) -> Any:
     entity = get_entity(session, resource, entity_id)
     try:
         for field, value in changes.items():
@@ -77,6 +99,14 @@ def update_entity(session: Session, resource: str, entity_id: str, changes: dict
         )
         apply_server_revision(entity, event.server_revision or 0)
         session.add(entity)
+        append_audit_log(
+            session,
+            action=f"{entity.__class__.__name__}.UPDATE",
+            table_name=entity.__class__.__tablename__,
+            record_id=str(entity.id),
+            user_id=actor_user_id,
+            payload=changes,
+        )
         session.commit()
         session.refresh(entity)
         return entity
@@ -85,7 +115,13 @@ def update_entity(session: Session, resource: str, entity_id: str, changes: dict
         raise
 
 
-def delete_entity(session: Session, resource: str, entity_id: str, device_id: str | None = None) -> Any:
+def delete_entity(
+    session: Session,
+    resource: str,
+    entity_id: str,
+    device_id: str | None = None,
+    actor_user_id: int | None = None,
+) -> Any:
     entity = mark_deleted(get_entity(session, resource, entity_id))
     try:
         event = append_sync_event(
@@ -99,6 +135,14 @@ def delete_entity(session: Session, resource: str, entity_id: str, device_id: st
         )
         apply_server_revision(entity, event.server_revision or 0)
         session.add(entity)
+        append_audit_log(
+            session,
+            action=f"{entity.__class__.__name__}.DELETE",
+            table_name=entity.__class__.__tablename__,
+            record_id=str(entity.id),
+            user_id=actor_user_id,
+            payload={"deleted_at": str(entity.deleted_at)},
+        )
         session.commit()
         session.refresh(entity)
         return entity

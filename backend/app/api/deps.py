@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlmodel import Session
 
@@ -18,6 +18,7 @@ security = HTTPBearer()
 
 def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    request: Request,
     session: SessionDep,
 ) -> User:
     try:
@@ -28,4 +29,17 @@ def get_current_user(
 
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user.")
+    request.state.user_id = user.id
     return user
+
+
+def require_role(*allowed_roles: str):
+    allowed = {role.strip().lower() for role in allowed_roles if role}
+
+    def checker(user: Annotated[User, Depends(get_current_user)]) -> User:
+        user_role = (user.role or "").strip().lower()
+        if allowed and user_role not in allowed:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role.")
+        return user
+
+    return checker
