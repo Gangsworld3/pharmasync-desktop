@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: pharmasync-backend
+    env: docker
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /health
+    envVars:
+      - key: ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: PHARMASYNC_JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
