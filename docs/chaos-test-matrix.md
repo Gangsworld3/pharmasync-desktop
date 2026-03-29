@@ -31,6 +31,10 @@ This matrix validates sync invariants under failure, not endpoint availability.
   - `npm run test:desktop-chaos`
 - Matrix-only run:
   - `npm run test:desktop-chaos-matrix`
+- Large replay simulation (1000+ operations by default):
+  - `npm run simulate:sync`
+  - Optional overrides:
+    - `npm run simulate:sync -- --ops 5000 --batchSize 50 --failEvery 13 --throwRate 0.05 --conflictRate 0.03`
 
 ## Scorecard
 

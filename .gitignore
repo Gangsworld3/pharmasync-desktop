@@ -33,6 +33,9 @@ prisma/dev.db
 prisma/dev.db-journal
 runtime/*.db
 runtime/*.sqlite*
+runtime/data/*.db
+runtime/data/*.db-shm
+runtime/data/*.db-wal
 runtime/session.json
 desktop/runtime/*.db
 desktop/runtime/*.sqlite*

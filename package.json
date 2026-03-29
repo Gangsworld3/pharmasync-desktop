@@ -16,7 +16,8 @@
     "db:seed": "node src/db/seed.js",
     "test:desktop-sync": "node --test --test-concurrency=1 desktop-tests/sync-resilience.test.js",
     "test:desktop-chaos": "node --test --test-concurrency=1 desktop-tests/sync-chaos.test.js",
-    "test:desktop-chaos-matrix": "node --test --test-concurrency=1 desktop-tests/chaos-matrix.test.js"
+    "test:desktop-chaos-matrix": "node --test --test-concurrency=1 desktop-tests/chaos-matrix.test.js",
+    "simulate:sync": "node desktop-tests/sync-simulation-runner.js"
   },
   "engines": {
     "node": ">=20"
