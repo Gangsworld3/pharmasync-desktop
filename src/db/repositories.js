@@ -1,0 +1,687 @@
+import { prisma } from "./client.js";
+import { randomUUID } from "node:crypto";
+import Database from "better-sqlite3";
+import { getDatabasePath } from "../services/desktop-runtime.js";
+
+const activeOnly = { deletedAt: null };
+const sqliteReader = new Database(getDatabasePath(), { readonly: true });
+
+function normalizeSqliteDate(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    return new Date(value);
+  }
+
+  return new Date(value);
+}
+
+export async function getOfflineSummary() {
+  const [clients, invoices, inventory, appointments, messages, queueDepth, conflicts, pendingOperations, deviceState] = await Promise.all([
+    prisma.client.count({ where: activeOnly }),
+    prisma.invoice.count({ where: activeOnly }),
+    prisma.inventoryItem.count({ where: activeOnly }),
+    prisma.appointment.count({ where: activeOnly }),
+    prisma.message.count({ where: activeOnly }),
+    prisma.syncQueue.count({ where: { status: { in: ["PENDING", "RETRY"] } } }),
+    prisma.syncQueue.count({ where: { status: "CONFLICT" } }),
+    prisma.localOperation.count({ where: { status: { in: ["PENDING", "RETRY", "CONFLICT"] } } }),
+    prisma.deviceState.findFirst({ orderBy: { updatedAt: "desc" } })
+  ]);
+
+  return {
+    clients,
+    invoices,
+    inventory,
+    appointments,
+    messages,
+    queueDepth,
+    conflicts,
+    pendingOperations,
+    deviceState
+  };
+}
+
+export function listClients() {
+  return prisma.client.findMany({ where: activeOnly, orderBy: { updatedAt: "desc" } });
+}
+
+export async function createLocalClient(payload) {
+  const operationId = payload.operationId ?? `local-op-${randomUUID()}`;
+  const clientId = payload.id ?? `client-${randomUUID()}`;
+
+  return prisma.$transaction(async (tx) => {
+    const client = await tx.client.create({
+      data: {
+        id: clientId,
+        clientCode: payload.clientCode ?? payload.client_code ?? `CLI-${Date.now()}`,
+        fullName: payload.fullName ?? payload.full_name ?? "New client",
+        phone: payload.phone ?? null,
+        email: payload.email ?? null,
+        preferredLanguage: payload.preferredLanguage ?? payload.preferred_language ?? "en",
+        city: payload.city ?? "Juba",
+        notes: payload.notes ?? null,
+        dirty: true,
+        syncStatus: "PENDING",
+        localRevision: 1,
+        serverRevision: 0,
+        lastModifiedLocally: new Date()
+      }
+    });
+
+    await appendLocalOperation(tx, {
+      operationId,
+      entityType: "Client",
+      entityId: client.id,
+      operation: "CREATE",
+      localRevision: 1,
+      payload: {
+        id: client.id,
+        client_code: client.clientCode,
+        full_name: client.fullName,
+        phone: client.phone,
+        email: client.email,
+        preferred_language: client.preferredLanguage,
+        city: client.city,
+        notes: client.notes
+      }
+    });
+
+    return client;
+  });
+}
+
+export async function updateLocalClient(id, payload) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.client.findUnique({ where: { id } });
+
+    if (!existing || existing.deletedAt) {
+      throw new Error("Client not found.");
+    }
+
+    const client = await tx.client.update({
+      where: { id },
+      data: {
+        clientCode: payload.clientCode ?? payload.client_code ?? existing.clientCode,
+        fullName: payload.fullName ?? payload.full_name ?? existing.fullName,
+        phone: payload.phone ?? existing.phone,
+        email: payload.email ?? existing.email,
+        preferredLanguage: payload.preferredLanguage ?? payload.preferred_language ?? existing.preferredLanguage,
+        city: payload.city ?? existing.city,
+        notes: payload.notes ?? existing.notes,
+        dirty: true,
+        syncStatus: "PENDING",
+        localRevision: { increment: 1 },
+        lastModifiedLocally: new Date()
+      }
+    });
+
+    await appendLocalOperation(tx, {
+      operationId: payload.operationId ?? `local-op-${randomUUID()}`,
+      entityType: "Client",
+      entityId: client.id,
+      operation: "UPDATE",
+      localRevision: client.localRevision,
+      payload: {
+        id: client.id,
+        client_code: client.clientCode,
+        full_name: client.fullName,
+        phone: client.phone,
+        email: client.email,
+        preferred_language: client.preferredLanguage,
+        city: client.city,
+        notes: client.notes
+      }
+    });
+
+    return client;
+  });
+}
+
+export function listInvoices() {
+  return prisma.invoice.findMany({
+    where: activeOnly,
+    include: { client: true },
+    orderBy: { createdAt: "desc" }
+  });
+}
+
+export function listInventory() {
+  return prisma.inventoryItem.findMany({
+    where: activeOnly,
+    orderBy: [{ quantityOnHand: "asc" }, { name: "asc" }]
+  });
+}
+
+export function listAppointments() {
+  return prisma.$transaction(async (tx) => {
+    const rows = sqliteReader.prepare(`
+      SELECT id, clientId, serviceType, staffName, startsAt, endsAt, status, reminderSentAt, notes, dirty, syncStatus, localRevision, serverRevision, lastSyncedAt, lastModifiedLocally, createdAt, updatedAt, deletedAt
+      FROM Appointment
+      WHERE deletedAt IS NULL
+      ORDER BY startsAt ASC
+    `).all();
+
+    const clientIds = [...new Set(rows.map((row) => row.clientId).filter(Boolean))];
+    const clients = clientIds.length ? await tx.client.findMany({ where: { id: { in: clientIds } } }) : [];
+    const clientMap = new Map(clients.map((client) => [client.id, client]));
+
+    return rows.map((row) => ({
+      ...row,
+      startsAt: normalizeSqliteDate(row.startsAt),
+      endsAt: normalizeSqliteDate(row.endsAt),
+      reminderSentAt: normalizeSqliteDate(row.reminderSentAt),
+      lastSyncedAt: normalizeSqliteDate(row.lastSyncedAt),
+      lastModifiedLocally: normalizeSqliteDate(row.lastModifiedLocally),
+      createdAt: normalizeSqliteDate(row.createdAt),
+      updatedAt: normalizeSqliteDate(row.updatedAt),
+      deletedAt: normalizeSqliteDate(row.deletedAt),
+      client: clientMap.get(row.clientId) ?? null
+    }));
+  });
+}
+
+export async function createLocalAppointment(payload) {
+  return prisma.$transaction(async (tx) => {
+    const appointment = await tx.appointment.create({
+      data: {
+        id: payload.id ?? `appt-${randomUUID()}`,
+        clientId: payload.clientId,
+        serviceType: payload.serviceType ?? payload.service_type ?? "Consultation",
+        staffName: payload.staffName ?? payload.staff_name ?? null,
+        startsAt: new Date(payload.startsAt ?? payload.starts_at),
+        endsAt: new Date(payload.endsAt ?? payload.ends_at),
+        status: payload.status ?? "PENDING",
+        notes: payload.notes ?? null,
+        dirty: true,
+        syncStatus: "PENDING",
+        localRevision: 1,
+        serverRevision: 0,
+        lastModifiedLocally: new Date()
+      }
+    });
+
+    await appendLocalOperation(tx, {
+      operationId: payload.operationId ?? `local-op-${randomUUID()}`,
+      entityType: "Appointment",
+      entityId: appointment.id,
+      operation: "CREATE",
+      localRevision: appointment.localRevision,
+      payload: {
+        client_id: appointment.clientId,
+        service_type: appointment.serviceType,
+        staff_name: appointment.staffName,
+        starts_at: appointment.startsAt,
+        ends_at: appointment.endsAt,
+        status: appointment.status,
+        notes: appointment.notes
+      }
+    });
+
+    return appointment;
+  });
+}
+
+export function listMessages() {
+  return prisma.message.findMany({
+    where: activeOnly,
+    include: { client: true },
+    orderBy: { createdAt: "desc" }
+  });
+}
+
+export function listSyncQueue() {
+  return prisma.syncQueue.findMany({ orderBy: { createdAt: "desc" } });
+}
+
+export function runLocalTransaction(callback) {
+  return prisma.$transaction(callback);
+}
+
+export function listAuditLogs() {
+  return prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 50 });
+}
+
+export function getDeviceState() {
+  return prisma.deviceState.findFirst({ orderBy: { updatedAt: "desc" } });
+}
+
+export function listLocalOperations(statuses = ["PENDING", "RETRY", "CONFLICT"]) {
+  return prisma.localOperation.findMany({
+    where: { status: { in: statuses } },
+    orderBy: { createdAt: "asc" }
+  });
+}
+
+export function listConflictOperations() {
+  return prisma.localOperation.findMany({
+    where: { status: "CONFLICT" },
+    orderBy: { updatedAt: "desc" }
+  });
+}
+
+export async function ensureDeviceState() {
+  const existing = await getDeviceState();
+  if (existing) {
+    return existing;
+  }
+
+  return prisma.deviceState.create({
+    data: {
+      deviceId: process.env.PHARMASYNC_DEVICE_ID ?? `desktop-${crypto.randomUUID()}`
+    }
+  });
+}
+
+export function updateDeviceState(data) {
+  return prisma.deviceState.update({
+    where: { deviceId: data.deviceId },
+    data
+  });
+}
+
+export function appendLocalOperation(entryOrTx, maybeEntry) {
+  const tx = maybeEntry ? entryOrTx : prisma;
+  const entry = maybeEntry ?? entryOrTx;
+
+  return tx.localOperation.create({
+    data: {
+      operationId: entry.operationId,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      operation: entry.operation,
+      payloadJson: JSON.stringify(entry.payload),
+      localRevision: entry.localRevision,
+      status: entry.status ?? "PENDING",
+      conflictPayloadJson: entry.conflictPayloadJson ? JSON.stringify(entry.conflictPayloadJson) : null,
+      errorDetail: entry.errorDetail ?? null
+    }
+  });
+}
+
+export function updateLocalOperation(id, data) {
+  return prisma.localOperation.update({
+    where: { id },
+    data: {
+      ...data,
+      conflictPayloadJson: data.conflictPayloadJson ? JSON.stringify(data.conflictPayloadJson) : data.conflictPayloadJson,
+      updatedAt: new Date()
+    }
+  });
+}
+
+export async function getLocalOperationByOperationId(operationId) {
+  return prisma.localOperation.findUnique({ where: { operationId } });
+}
+
+export async function getPendingLocalOperations() {
+  return prisma.localOperation.findMany({
+    where: { status: { in: ["PENDING", "RETRY"] } },
+    orderBy: { createdAt: "asc" }
+  });
+}
+
+export async function getConflictLocalOperations() {
+  return prisma.localOperation.findMany({
+    where: { status: "CONFLICT" },
+    orderBy: { updatedAt: "desc" }
+  });
+}
+
+export async function upsertClientFromServer(change) {
+  const data = change.data?.data ?? change.data;
+  const existing = await prisma.client.findUnique({ where: { id: change.entityId } });
+  const base = {
+    clientCode: data.client_code ?? existing?.clientCode ?? `client-${change.entityId}`,
+    fullName: data.full_name ?? existing?.fullName ?? "Unknown client",
+    phone: data.phone ?? existing?.phone ?? null,
+    email: data.email ?? existing?.email ?? null,
+    preferredLanguage: data.preferred_language ?? existing?.preferredLanguage ?? "en",
+    city: data.city ?? existing?.city ?? null,
+    notes: data.notes ?? existing?.notes ?? null,
+    dirty: false,
+    syncStatus: "SYNCED",
+    serverRevision: change.serverRevision,
+    lastSyncedAt: new Date(),
+    lastModifiedLocally: new Date()
+  };
+
+  if (change.operation === "DELETE") {
+    return prisma.client.upsert({
+      where: { id: change.entityId },
+      update: { deletedAt: new Date(data.deleted_at), dirty: false, syncStatus: "SYNCED", serverRevision: change.serverRevision, lastSyncedAt: new Date() },
+      create: {
+        id: change.entityId,
+        clientCode: data.client_code ?? `deleted-${change.entityId}`,
+        fullName: data.full_name ?? "Deleted client",
+        preferredLanguage: data.preferred_language ?? "en",
+        dirty: false,
+        syncStatus: "SYNCED",
+        serverRevision: change.serverRevision,
+        lastSyncedAt: new Date(),
+        lastModifiedLocally: new Date(),
+        deletedAt: new Date(data.deleted_at)
+      }
+    });
+  }
+
+  return prisma.client.upsert({
+    where: { id: change.entityId },
+    update: { ...base, deletedAt: null },
+    create: { id: change.entityId, ...base }
+  });
+}
+
+export async function upsertInventoryFromServer(change) {
+  const data = change.data;
+  const existing = await prisma.inventoryItem.findUnique({ where: { id: change.entityId } });
+
+  if (change.operation === "DELETE") {
+    return prisma.inventoryItem.upsert({
+      where: { id: change.entityId },
+      update: { deletedAt: new Date(data.deleted_at), dirty: false, syncStatus: "SYNCED", serverRevision: change.serverRevision, lastSyncedAt: new Date() },
+      create: {
+        id: change.entityId,
+        sku: data.sku ?? `deleted-${change.entityId}`,
+        name: data.name ?? "Deleted inventory item",
+        category: data.category ?? "Unknown",
+        dirty: false,
+        syncStatus: "SYNCED",
+        serverRevision: change.serverRevision,
+        lastSyncedAt: new Date(),
+        lastModifiedLocally: new Date(),
+        deletedAt: new Date(data.deleted_at)
+      }
+    });
+  }
+
+  return prisma.inventoryItem.upsert({
+    where: { id: change.entityId },
+    update: {
+      sku: data.sku ?? existing?.sku ?? `inventory-${change.entityId}`,
+      name: data.name ?? existing?.name ?? "Unknown inventory item",
+      category: data.category ?? existing?.category ?? "Unknown",
+      quantityOnHand: Number(data.quantity_on_hand ?? existing?.quantityOnHand ?? 0),
+      reorderLevel: Number(data.reorder_level ?? existing?.reorderLevel ?? 0),
+      unitCostMinor: data.unit_cost_minor ?? existing?.unitCostMinor ?? 0,
+      salePriceMinor: data.sale_price_minor ?? existing?.salePriceMinor ?? 0,
+      batchNumber: data.batch_number ?? existing?.batchNumber ?? null,
+      expiresOn: data.expires_on ? new Date(data.expires_on) : existing?.expiresOn ?? null,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date(),
+      deletedAt: null
+    },
+    create: {
+      id: change.entityId,
+      sku: data.sku ?? existing?.sku ?? `inventory-${change.entityId}`,
+      name: data.name ?? existing?.name ?? "Unknown inventory item",
+      category: data.category ?? existing?.category ?? "Unknown",
+      quantityOnHand: Number(data.quantity_on_hand ?? existing?.quantityOnHand ?? 0),
+      reorderLevel: Number(data.reorder_level ?? existing?.reorderLevel ?? 0),
+      unitCostMinor: data.unit_cost_minor ?? existing?.unitCostMinor ?? 0,
+      salePriceMinor: data.sale_price_minor ?? existing?.salePriceMinor ?? 0,
+      batchNumber: data.batch_number ?? existing?.batchNumber ?? null,
+      expiresOn: data.expires_on ? new Date(data.expires_on) : existing?.expiresOn ?? null,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date()
+    }
+  });
+}
+
+export async function upsertAppointmentFromServer(change) {
+  const data = change.data;
+  const existing = await prisma.appointment.findUnique({ where: { id: change.entityId } });
+
+  if (change.operation === "DELETE") {
+    return prisma.appointment.upsert({
+      where: { id: change.entityId },
+      update: { deletedAt: new Date(data.deleted_at), dirty: false, syncStatus: "SYNCED", serverRevision: change.serverRevision, lastSyncedAt: new Date() },
+      create: {
+        id: change.entityId,
+        clientId: data.client_id ?? "missing-client",
+        serviceType: data.service_type ?? "Deleted appointment",
+        startsAt: new Date(),
+        endsAt: new Date(),
+        dirty: false,
+        syncStatus: "SYNCED",
+        serverRevision: change.serverRevision,
+        lastSyncedAt: new Date(),
+        lastModifiedLocally: new Date(),
+        deletedAt: new Date(data.deleted_at)
+      }
+    });
+  }
+
+  return prisma.appointment.upsert({
+    where: { id: change.entityId },
+    update: {
+      clientId: data.client_id ?? existing?.clientId ?? null,
+      serviceType: data.service_type ?? existing?.serviceType ?? "Appointment",
+      staffName: data.staff_name ?? existing?.staffName ?? null,
+      startsAt: data.starts_at ? new Date(data.starts_at) : existing?.startsAt ?? new Date(),
+      endsAt: data.ends_at ? new Date(data.ends_at) : existing?.endsAt ?? new Date(),
+      status: data.status ?? existing?.status ?? "PENDING",
+      reminderSentAt: data.reminder_sent_at ? new Date(data.reminder_sent_at) : existing?.reminderSentAt ?? null,
+      notes: data.notes ?? existing?.notes ?? null,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date(),
+      deletedAt: null
+    },
+    create: {
+      id: change.entityId,
+      clientId: data.client_id ?? existing?.clientId ?? null,
+      serviceType: data.service_type ?? existing?.serviceType ?? "Appointment",
+      staffName: data.staff_name ?? existing?.staffName ?? null,
+      startsAt: data.starts_at ? new Date(data.starts_at) : existing?.startsAt ?? new Date(),
+      endsAt: data.ends_at ? new Date(data.ends_at) : existing?.endsAt ?? new Date(),
+      status: data.status ?? existing?.status ?? "PENDING",
+      reminderSentAt: data.reminder_sent_at ? new Date(data.reminder_sent_at) : existing?.reminderSentAt ?? null,
+      notes: data.notes ?? existing?.notes ?? null,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date()
+    }
+  });
+}
+
+export async function upsertInvoiceFromServer(change) {
+  const data = change.data;
+  const existing = await prisma.invoice.findUnique({ where: { id: change.entityId } });
+
+  if (change.operation === "DELETE") {
+    return prisma.invoice.upsert({
+      where: { id: change.entityId },
+      update: { deletedAt: new Date(data.deleted_at), dirty: false, syncStatus: "SYNCED", serverRevision: change.serverRevision, lastSyncedAt: new Date() },
+      create: {
+        id: change.entityId,
+        invoiceNumber: data.invoice_number ?? `deleted-${change.entityId}`,
+        totalMinor: data.total_minor ?? 0,
+        balanceDueMinor: data.balance_due_minor ?? 0,
+        paymentMethod: data.payment_method ?? "unknown",
+        dirty: false,
+        syncStatus: "SYNCED",
+        serverRevision: change.serverRevision,
+        lastSyncedAt: new Date(),
+        lastModifiedLocally: new Date(),
+        deletedAt: new Date(data.deleted_at)
+      }
+    });
+  }
+
+  return prisma.invoice.upsert({
+    where: { id: change.entityId },
+    update: {
+      invoiceNumber: data.invoice_number ?? existing?.invoiceNumber ?? `invoice-${change.entityId}`,
+      clientId: data.client_id ?? existing?.clientId ?? null,
+      currencyCode: data.currency_code ?? existing?.currencyCode ?? "SSP",
+      totalMinor: data.total_minor ?? existing?.totalMinor ?? 0,
+      balanceDueMinor: data.balance_due_minor ?? existing?.balanceDueMinor ?? 0,
+      paymentMethod: data.payment_method ?? existing?.paymentMethod ?? "unknown",
+      status: data.status ?? existing?.status ?? "ISSUED",
+      issuedAt: data.issued_at ? new Date(data.issued_at) : existing?.issuedAt ?? null,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date(),
+      deletedAt: null
+    },
+    create: {
+      id: change.entityId,
+      invoiceNumber: data.invoice_number ?? existing?.invoiceNumber ?? `invoice-${change.entityId}`,
+      clientId: data.client_id ?? existing?.clientId ?? null,
+      currencyCode: data.currency_code ?? existing?.currencyCode ?? "SSP",
+      totalMinor: data.total_minor ?? existing?.totalMinor ?? 0,
+      balanceDueMinor: data.balance_due_minor ?? existing?.balanceDueMinor ?? 0,
+      paymentMethod: data.payment_method ?? existing?.paymentMethod ?? "unknown",
+      status: data.status ?? existing?.status ?? "ISSUED",
+      issuedAt: data.issued_at ? new Date(data.issued_at) : existing?.issuedAt ?? null,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date()
+    }
+  });
+}
+
+export async function appendMessageFromServer(change) {
+  const data = change.data;
+  return prisma.message.upsert({
+    where: { id: change.entityId },
+    update: {
+      conversationId: data.conversation_id ?? null,
+      senderId: data.sender_id ?? null,
+      body: data.content,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date(),
+      sentAt: data.created_at ? new Date(data.created_at) : new Date()
+    },
+    create: {
+      id: change.entityId,
+      clientId: null,
+      channel: "IN_APP",
+      direction: "event",
+      recipient: null,
+      body: data.content,
+      deliveryStatus: "synced",
+      sentAt: data.created_at ? new Date(data.created_at) : new Date(),
+      conversationId: data.conversation_id ?? null,
+      senderId: data.sender_id ?? null,
+      dirty: false,
+      syncStatus: "SYNCED",
+      serverRevision: change.serverRevision,
+      lastSyncedAt: new Date(),
+      lastModifiedLocally: new Date()
+    }
+  });
+}
+
+export async function createInvoiceWithDependencies(tx, payload) {
+  const inventoryItem = await tx.inventoryItem.findFirst({
+    where: { sku: payload.inventorySku, deletedAt: null }
+  });
+
+  if (!inventoryItem) {
+    throw new Error(`Inventory item ${payload.inventorySku} not found.`);
+  }
+
+  if (inventoryItem.quantityOnHand < payload.quantity) {
+    throw new Error(`Insufficient stock for ${payload.inventorySku}.`);
+  }
+
+  const invoice = await tx.invoice.create({
+    data: {
+      invoiceNumber: payload.invoiceNumber,
+      clientId: payload.clientId,
+      currencyCode: payload.currencyCode ?? "SSP",
+      totalMinor: payload.totalMinor,
+      balanceDueMinor: payload.balanceDueMinor ?? payload.totalMinor,
+      paymentMethod: payload.paymentMethod,
+      status: payload.status ?? "ISSUED",
+      issuedAt: new Date(),
+      dirty: true,
+      syncStatus: "PENDING",
+      localRevision: 1
+    }
+  });
+
+  const updatedInventory = await tx.inventoryItem.update({
+    where: { id: inventoryItem.id },
+    data: {
+      quantityOnHand: { decrement: payload.quantity },
+      dirty: true,
+      syncStatus: "PENDING",
+      localRevision: { increment: 1 }
+    }
+  });
+
+  return { invoice, updatedInventory };
+}
+
+export function appendSyncQueue(tx, event) {
+  return tx.syncQueue.create({
+    data: {
+      entityType: event.entityType,
+      entityId: event.entityId,
+      operation: event.operation,
+      payloadJson: JSON.stringify(event.payload),
+      status: event.status ?? "PENDING",
+      attempts: event.attempts ?? 0,
+      nextRetryAt: event.nextRetryAt ?? new Date()
+    }
+  });
+}
+
+export function appendAuditLog(tx, entry) {
+  return tx.auditLog.create({
+    data: {
+      actor: entry.actor,
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      detailsJson: entry.detailsJson ? JSON.stringify(entry.detailsJson) : null
+    }
+  });
+}
+
+export function listRetryableQueueItems(now = new Date()) {
+  return prisma.syncQueue.findMany({
+    where: {
+      status: { in: ["PENDING", "RETRY"] },
+      OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }]
+    },
+    orderBy: { createdAt: "asc" }
+  });
+}
+
+export function markQueueItemState(id, data) {
+  return prisma.syncQueue.update({ where: { id }, data });
+}
+
+export async function resolveLocalConflictOperation(conflictId, resolution = "resolved") {
+  return prisma.localOperation.update({
+    where: { id: conflictId },
+    data: {
+      status: "RESOLVED",
+      errorDetail: resolution,
+      updatedAt: new Date()
+    }
+  });
+}

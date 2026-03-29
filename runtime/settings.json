@@ -1,0 +1,4 @@
+{
+  "backendUrl": "https://pharmasync-backend.onrender.com",
+  "syncIntervalMs": 15000
+}

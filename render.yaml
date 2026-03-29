@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: pharmasync-backend
+    runtime: python
+    plan: starter
+    region: frankfurt
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port 10000
+    healthCheckPath: /health
+    envVars:
+      - key: PHARMASYNC_DATABASE_URL
+        fromDatabase:
+          name: pharmasync-db
+          property: connectionString
+      - key: PHARMASYNC_JWT_SECRET
+        generateValue: true
+      - key: PHARMASYNC_APP_NAME
+        value: PharmaSync FastAPI
+      - key: ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+
+databases:
+  - name: pharmasync-db
+    plan: starter

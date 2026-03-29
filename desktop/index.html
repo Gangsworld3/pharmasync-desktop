@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PharmaSync Desktop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="brand-mark">PS</div>
+          <div>
+            <p class="eyebrow">Desktop Suite</p>
+            <h1>PharmaSync</h1>
+          </div>
+        </div>
+
+        <button class="quick-action">+ New Invoice</button>
+
+        <nav class="nav-groups">
+          <button class="nav-item active" data-section="overview">Overview</button>
+          <button class="nav-item" data-section="crm">Clients</button>
+          <button class="nav-item" data-section="calendar">Scheduling</button>
+          <button class="nav-item" data-section="billing">Billing</button>
+          <button class="nav-item" data-section="inventory">Inventory</button>
+          <button class="nav-item" data-section="messages">Messaging</button>
+          <button class="nav-item" data-section="analytics">Analytics</button>
+          <button class="nav-item" data-section="conflicts">Conflicts</button>
+          <button class="nav-item" data-section="sync">Sync Center</button>
+          <button class="nav-item" data-section="settings">Settings</button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p class="eyebrow">Branch</p>
+          <strong>Juba Main Store</strong>
+          <p>Offline queue: <span id="offlineCount">18 events</span></p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">South Sudan ready</p>
+            <h2 id="headline">Operations overview</h2>
+          </div>
+
+          <div class="topbar-actions">
+            <input id="searchInput" type="search" placeholder="Search clients, invoices, medicines" />
+            <button id="syncStatusBadge" class="sync-badge sync-idle" type="button">Waiting</button>
+            <button id="syncNowButton" type="button">Sync now</button>
+            <button id="languageToggle">AR</button>
+            <button id="themeToggle">Dark</button>
+          </div>
+        </header>
+
+        <section class="hero-panel">
+          <div>
+            <p class="eyebrow">Today</p>
+            <h3>Fast enough for the front desk. Strong enough for finance and stock control.</h3>
+            <p class="hero-copy">
+              Built for pharmacies, drug stores, and service businesses working with intermittent internet,
+              mobile money, and multi-language communication.
+            </p>
+            <p class="trust-line">Your data is محفوظ locally and synced securely.</p>
+          </div>
+
+          <div class="status-cluster">
+            <div>
+              <span class="label">Sync health</span>
+              <strong id="syncHealthLabel">Waiting for local sync engine</strong>
+            </div>
+            <div>
+              <span class="label">Primary payments</span>
+              <strong>Cash, MTN Money, Bank</strong>
+            </div>
+            <div>
+              <span class="label">Backup</span>
+              <strong>Encrypted local + cloud</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <div class="main-column">
+            <section class="metric-strip" id="kpiGrid"></section>
+
+            <section class="panel section-panel" data-panel="overview">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Action board</p>
+                  <h3>Today’s priorities</h3>
+                </div>
+                <span class="pill success">Live desk</span>
+              </div>
+              <div class="priority-grid" id="priorityGrid"></div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="crm">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">CRM</p>
+                  <h3>Clients and care history</h3>
+                </div>
+              </div>
+              <div class="split-layout">
+                <div class="client-column">
+                  <form class="client-form-card" id="clientForm">
+                    <div class="section-header compact">
+                      <div>
+                        <p class="eyebrow">Local-first create</p>
+                        <h4>Add or update client</h4>
+                      </div>
+                      <span class="pill" id="clientFormMode">Create</span>
+                    </div>
+                    <input id="clientFullName" name="fullName" type="text" placeholder="Full name" required />
+                    <input id="clientPhone" name="phone" type="text" placeholder="Phone number" />
+                    <input id="clientEmail" name="email" type="email" placeholder="Email address" />
+                    <input id="clientCity" name="city" type="text" placeholder="City" />
+                    <textarea id="clientNotes" name="notes" placeholder="Notes, refill context, language preference"></textarea>
+                    <div class="form-actions">
+                      <button type="submit" id="clientSubmitButton">Save locally</button>
+                      <button type="button" id="clientResetButton" class="ghost-button">Clear</button>
+                    </div>
+                  </form>
+                  <div class="list-card" id="clientList"></div>
+                </div>
+                <div class="detail-card">
+                  <div class="client-hero">
+                    <div>
+                      <p class="eyebrow">Selected client</p>
+                      <h4 id="clientName">Mariam Deng</h4>
+                    </div>
+                    <span class="pill">Chronic care</span>
+                  </div>
+                  <div class="detail-stats" id="clientStats"></div>
+                  <div class="timeline" id="clientTimeline"></div>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="conflicts">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Review queue</p>
+                  <h3>Conflict center</h3>
+                </div>
+                <span class="pill warning" id="conflictBadge">0 waiting</span>
+              </div>
+              <div class="conflict-layout">
+                <div id="conflictList" class="list-card"></div>
+                <div id="conflictDetail" class="detail-card"></div>
+              </div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="calendar">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Scheduling</p>
+                  <h3>Appointments and staff availability</h3>
+                </div>
+                <span class="pill warning">7 reminders pending</span>
+              </div>
+              <div class="schedule-table" id="scheduleTable"></div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="billing">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Billing</p>
+                  <h3>Invoice issuance and payment capture</h3>
+                </div>
+              </div>
+              <div class="billing-grid">
+                <div id="invoicePreview" class="receipt-preview"></div>
+                <div class="payment-stack" id="paymentMethods"></div>
+              </div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="inventory">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Inventory</p>
+                  <h3>Batch-level stock control</h3>
+                </div>
+              </div>
+              <div class="inventory-table" id="inventoryTable"></div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="messages">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Messaging</p>
+                  <h3>SMS-first communication</h3>
+                </div>
+              </div>
+              <div class="message-layout">
+                <div class="message-thread-list" id="messageThreads"></div>
+                <div class="message-compose" id="messageCompose"></div>
+              </div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="analytics">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Reporting</p>
+                  <h3>Revenue, stock risk, and channel mix</h3>
+                </div>
+              </div>
+              <div class="analytics-layout">
+                <div class="chart-card" id="revenueBars"></div>
+                <div class="analytics-facts" id="analyticsFacts"></div>
+              </div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="sync">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Sync engine</p>
+                  <h3>Offline-first reconciliation</h3>
+                </div>
+                <span class="pill" id="syncPill">Auto retry enabled</span>
+              </div>
+              <div class="sync-grid" id="syncGrid"></div>
+            </section>
+
+            <section class="panel section-panel hidden" data-panel="settings">
+              <div class="section-header">
+                <div>
+                  <p class="eyebrow">Configuration</p>
+                  <h3>Device, sync, and backup</h3>
+                </div>
+              </div>
+              <div class="conflict-layout">
+                <form id="settingsForm" class="client-form-card"></form>
+                <div id="settingsMeta" class="detail-card"></div>
+              </div>
+            </section>
+          </div>
+
+          <aside class="inspector">
+            <section class="inspector-panel">
+              <p class="eyebrow">Snapshot</p>
+              <h3>Today at a glance</h3>
+              <div id="miniStats" class="mini-stats"></div>
+            </section>
+
+            <section class="inspector-panel">
+              <p class="eyebrow">Low stock</p>
+              <div id="lowStockList" class="signal-list"></div>
+            </section>
+
+            <section class="inspector-panel">
+              <p class="eyebrow">Next messages</p>
+              <div id="messageQueue" class="signal-list"></div>
+            </section>
+          </aside>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

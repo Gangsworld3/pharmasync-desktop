@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Client {
+  id                String        @id @default(cuid())
+  clientCode        String        @unique
+  fullName          String
+  phone             String?
+  email             String?
+  preferredLanguage String        @default("en")
+  city              String?
+  notes             String?
+  dirty             Boolean       @default(true)
+  syncStatus        String        @default("PENDING")
+  localRevision     Int           @default(1)
+  serverRevision    Int           @default(0)
+  lastSyncedAt      DateTime?
+  lastModifiedLocally DateTime    @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+  invoices          Invoice[]
+  appointments      Appointment[]
+  messages          Message[]
+}
+
+model Invoice {
+  id                String        @id @default(cuid())
+  invoiceNumber     String        @unique
+  clientId          String?
+  currencyCode      String        @default("SSP")
+  totalMinor        Int
+  balanceDueMinor   Int
+  paymentMethod     String
+  status            String        @default("DRAFT")
+  issuedAt          DateTime?
+  dirty             Boolean       @default(true)
+  syncStatus        String        @default("PENDING")
+  localRevision     Int           @default(1)
+  serverRevision    Int           @default(0)
+  lastSyncedAt      DateTime?
+  lastModifiedLocally DateTime    @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+  client            Client?       @relation(fields: [clientId], references: [id])
+}
+
+model InventoryItem {
+  id                String        @id @default(cuid())
+  sku               String        @unique
+  name              String
+  category          String
+  quantityOnHand    Float         @default(0)
+  reorderLevel      Float         @default(0)
+  unitCostMinor     Int           @default(0)
+  salePriceMinor    Int           @default(0)
+  batchNumber       String?
+  expiresOn         DateTime?
+  dirty             Boolean       @default(true)
+  syncStatus        String        @default("PENDING")
+  localRevision     Int           @default(1)
+  serverRevision    Int           @default(0)
+  lastSyncedAt      DateTime?
+  lastModifiedLocally DateTime    @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+}
+
+model Appointment {
+  id                String        @id @default(cuid())
+  clientId          String
+  serviceType       String
+  staffName         String?
+  startsAt          DateTime
+  endsAt            DateTime
+  status            String        @default("PENDING")
+  reminderSentAt    DateTime?
+  notes             String?
+  dirty             Boolean       @default(true)
+  syncStatus        String        @default("PENDING")
+  localRevision     Int           @default(1)
+  serverRevision    Int           @default(0)
+  lastSyncedAt      DateTime?
+  lastModifiedLocally DateTime    @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+  client            Client        @relation(fields: [clientId], references: [id])
+}
+
+model Message {
+  id                String        @id @default(cuid())
+  clientId          String?
+  channel           String        @default("SMS")
+  direction         String
+  recipient         String?
+  body              String
+  deliveryStatus    String        @default("queued")
+  sentAt            DateTime?
+  conversationId    String?
+  senderId          String?
+  dirty             Boolean       @default(true)
+  syncStatus        String        @default("PENDING")
+  localRevision     Int           @default(1)
+  serverRevision    Int           @default(0)
+  lastSyncedAt      DateTime?
+  lastModifiedLocally DateTime    @default(now())
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+  client            Client?       @relation(fields: [clientId], references: [id])
+}
+
+model DeviceState {
+  id                  String      @id @default(cuid())
+  deviceId            String      @unique
+  lastPulledRevision  Int         @default(0)
+  syncStatus          String      @default("IDLE")
+  lastSyncStartedAt   DateTime?
+  lastSyncCompletedAt DateTime?
+  lastSyncError       String?
+  remoteBaseUrl       String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+}
+
+model LocalOperation {
+  id                  String      @id @default(cuid())
+  operationId         String      @unique
+  entityType          String
+  entityId            String
+  operation           String
+  payloadJson         String
+  localRevision       Int
+  status              String      @default("PENDING")
+  conflictPayloadJson String?
+  errorDetail         String?
+  attempts            Int         @default(0)
+  lastAttemptAt       DateTime?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+}
+
+model SyncQueue {
+  id                String        @id @default(cuid())
+  entityType        String
+  entityId          String
+  operation         String
+  payloadJson       String
+  status            String        @default("PENDING")
+  attempts          Int           @default(0)
+  lastAttemptAt     DateTime?
+  nextRetryAt       DateTime?
+  conflictReason    String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+model AuditLog {
+  id                String        @id @default(cuid())
+  actor             String
+  action            String
+  entityType        String
+  entityId          String
+  detailsJson       String?
+  createdAt         DateTime      @default(now())
+}

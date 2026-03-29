@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: pharmasync-postgres
+    environment:
+      POSTGRES_USER: pharma
+      POSTGRES_PASSWORD: secure123
+      POSTGRES_DB: pharmasync
+    ports:
+      - "5432:5432"
+    volumes:
+      - pharmasync-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  pharmasync-postgres-data:

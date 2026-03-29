@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+runtime/logs/
+
+# Local databases and state
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+dev.db
+prisma/dev.db
+prisma/dev.db-journal
+runtime/*.db
+runtime/*.sqlite*
+desktop/runtime/*.db
+desktop/runtime/*.sqlite*
+
+# Build artifacts
+dist/
+build/
+out/
+coverage/
+*.tsbuildinfo
+
+# Electron packaging outputs
+release/
+*.exe
+*.dmg
+*.AppImage
+*.zip
+
+# IDE / OS artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

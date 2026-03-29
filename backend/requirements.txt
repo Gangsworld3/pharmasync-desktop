@@ -1,0 +1,10 @@
+fastapi==0.135.2
+uvicorn==0.42.0
+sqlmodel==0.0.37
+pydantic-settings==2.13.1
+PyJWT==2.12.1
+psycopg[binary]==3.2.12
+alembic==1.18.4
+pytest==8.4.2
+httpx==0.28.1
+pytest-asyncio==1.2.0

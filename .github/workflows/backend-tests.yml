@@ -1,0 +1,50 @@
+name: Backend Tests
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - "alembic.ini"
+      - ".github/workflows/backend-tests.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - "alembic.ini"
+      - ".github/workflows/backend-tests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: pharma
+          POSTGRES_PASSWORD: secure123
+          POSTGRES_DB: pharmasync
+        options: >-
+          --health-cmd="pg_isready -U pharma"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r backend/requirements.txt
+
+      - name: Run integration tests
+        env:
+          PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync_test
+          PHARMASYNC_JWT_SECRET: test-pharmasync-jwt-secret-32-bytes-min
+          PHARMASYNC_DEFAULT_ADMIN_EMAIL: admin@pharmasync.local
+          PHARMASYNC_DEFAULT_ADMIN_PASSWORD: Admin123!
+        run: python -m pytest backend/tests -q
