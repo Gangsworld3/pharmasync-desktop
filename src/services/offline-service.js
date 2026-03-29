@@ -160,12 +160,16 @@ function addMinutes(isoString, minutes) {
 }
 
 function resolveSuggestedDate(originalStart, suggestedStart) {
-  if (suggestedStart.includes("T")) {
+  if (suggestedStart && typeof suggestedStart === "object" && suggestedStart.starts_at) {
+    return new Date(suggestedStart.starts_at);
+  }
+
+  if (typeof suggestedStart === "string" && suggestedStart.includes("T")) {
     return new Date(suggestedStart);
   }
 
   const base = new Date(originalStart);
-  const [hours, minutes] = suggestedStart.split(":").map(Number);
+  const [hours, minutes] = String(suggestedStart).split(":").map(Number);
   base.setHours(hours, minutes, 0, 0);
   return base;
 }
@@ -180,7 +184,7 @@ export async function resolveDesktopConflict(conflictId, payload = {}, actor = "
 
     const conflictPayload = conflict.conflictPayloadJson ? JSON.parse(conflict.conflictPayloadJson) : null;
     const operationPayload = conflict.payloadJson ? JSON.parse(conflict.payloadJson) : {};
-    const action = payload.action ?? "DISMISS";
+    const action = payload.action ?? "DEFER";
 
     if (conflict.entityType === "Appointment" && action === "RESCHEDULE") {
       const suggestedStart = payload.suggestedStart;
@@ -245,6 +249,51 @@ export async function resolveDesktopConflict(conflictId, payload = {}, actor = "
       });
 
       return { status: "resolved", action: "RESCHEDULE", appointmentId: appointment.id, startsAt: nextStartsAt.toISOString() };
+    }
+
+    if (action === "RETRY") {
+      await tx.localOperation.update({
+        where: { id: conflictId },
+        data: {
+          status: "RETRY_SCHEDULED",
+          conflictPayloadJson: null,
+          errorDetail: "retry_requested",
+          nextAttemptAt: new Date(),
+          backoffMs: 0,
+          updatedAt: new Date()
+        }
+      });
+
+      await appendAuditLog(tx, {
+        actor,
+        action: "desktop.conflict.retry",
+        entityType: conflict.entityType,
+        entityId: conflict.entityId,
+        detailsJson: { conflictType: conflictPayload?.type ?? "CONFLICT" }
+      });
+
+      return { status: "queued", action, entityId: conflict.entityId };
+    }
+
+    if (action === "DEFER") {
+      await tx.localOperation.update({
+        where: { id: conflictId },
+        data: {
+          status: "CONFLICT",
+          errorDetail: "deferred_by_user",
+          updatedAt: new Date()
+        }
+      });
+
+      await appendAuditLog(tx, {
+        actor,
+        action: "desktop.conflict.defer",
+        entityType: conflict.entityType,
+        entityId: conflict.entityId,
+        detailsJson: { conflictType: conflictPayload?.type ?? "CONFLICT" }
+      });
+
+      return { status: "deferred", action, entityId: conflict.entityId };
     }
 
     await tx.localOperation.update({

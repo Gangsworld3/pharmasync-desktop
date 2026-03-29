@@ -5,15 +5,20 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
+from app.core.config import settings
 from app.db.models import Client, Invoice, MessageEvent
 from app.db.repositories import (
     SYNC_ENTITY_MODELS,
+    advance_device_cursor,
     append_sync_event,
     apply_server_revision,
+    claim_entity_field_clock,
+    ensure_monotonic_device_cursor,
     enqueue_conflict,
     find_appointment_conflict,
     get_active_by_id,
@@ -43,6 +48,10 @@ ENTITY_FIELDS: dict[str, set[str]] = {
     "Message": {"conversation_id", "sender_id", "content", "created_at"},
     "Invoice": {"invoice_number", "client_id", "currency_code", "payment_method", "status", "issued_at", "items"},
 }
+INVENTORY_CRDT_SAFE_FIELDS = {"name", "category", "batch_number", "expires_on"}
+INVENTORY_STRICT_FIELDS = {"sku", "quantity_on_hand", "reorder_level", "unit_cost_minor", "sale_price_minor"}
+APPOINTMENT_CRDT_SAFE_FIELDS = {"status", "notes", "reminder_sent_at"}
+APPOINTMENT_STRICT_FIELDS = {"service_type", "staff_name", "starts_at", "ends_at", "client_id"}
 
 
 def _filtered_payload(entity: str, data: dict[str, Any]) -> dict[str, Any]:
@@ -52,6 +61,26 @@ def _filtered_payload(entity: str, data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, str):
             payload[field] = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return payload
+
+
+def _parse_crdt_meta(change: dict[str, Any]) -> tuple[list[str], dict[str, int]]:
+    raw_data = change.get("data", {})
+    raw_crdt = raw_data.get("_crdt") if isinstance(raw_data, dict) else None
+    if not isinstance(raw_crdt, dict):
+        return [], {}
+
+    raw_changed_fields = raw_crdt.get("changedFields", [])
+    changed_fields = [str(field) for field in raw_changed_fields if isinstance(field, str)]
+    raw_field_clocks = raw_crdt.get("fieldClocks", {})
+    field_clocks: dict[str, int] = {}
+    if isinstance(raw_field_clocks, dict):
+        for field_name, clock in raw_field_clocks.items():
+            if isinstance(field_name, str):
+                try:
+                    field_clocks[field_name] = max(0, int(clock))
+                except (TypeError, ValueError):
+                    continue
+    return changed_fields, field_clocks
 
 
 def _conflict_payload(
@@ -112,23 +141,228 @@ def _merge_client(existing: Client, incoming: dict[str, Any]) -> dict[str, Any]:
     return merged_fields
 
 
+def _apply_client_crdt_merge(
+    session: Session,
+    *,
+    existing: Client,
+    incoming: dict[str, Any],
+    changed_fields: list[str],
+    field_clocks: dict[str, int],
+    fallback_clock: int,
+    device_id: str,
+    operation_id: str,
+) -> tuple[int, dict[str, Any], list[str]]:
+    if not changed_fields:
+        changed_fields = list(incoming.keys())
+
+    merged_fields: dict[str, Any] = {}
+    skipped_fields: list[str] = []
+
+    for field in changed_fields:
+        if field not in ENTITY_FIELDS["Client"] or field not in incoming:
+            continue
+        incoming_clock = field_clocks.get(field, fallback_clock)
+        apply_field = claim_entity_field_clock(
+            session,
+            entity_type="Client",
+            entity_id=existing.id,
+            field_name=field,
+            lamport_counter=incoming_clock,
+            device_id=device_id,
+        )
+        if not apply_field:
+            skipped_fields.append(field)
+            continue
+
+        next_value = incoming[field]
+        if getattr(existing, field, None) != next_value:
+            setattr(existing, field, next_value)
+            merged_fields[field] = next_value
+
+    touch_for_update(existing)
+    event = append_sync_event(
+        session,
+        entity="Client",
+        operation="UPDATE",
+        entity_id=existing.id,
+        payload={
+            "merged_fields": merged_fields,
+            "skipped_fields": skipped_fields,
+            "changed_fields": changed_fields,
+            "incoming": incoming,
+        },
+        operation_id=operation_id,
+        device_id=device_id,
+        resolution_type="CRDT_MERGED",
+        resolved=True,
+    )
+    apply_server_revision(existing, event.server_revision or 0)
+    session.add(existing)
+    return event.server_revision or 0, merged_fields, skipped_fields
+
+
+def _apply_inventory_crdt_merge(
+    session: Session,
+    *,
+    existing: Any,
+    incoming: dict[str, Any],
+    changed_fields: list[str],
+    field_clocks: dict[str, int],
+    fallback_clock: int,
+    device_id: str,
+    operation_id: str,
+) -> tuple[int, dict[str, Any], list[str]]:
+    if not changed_fields:
+        changed_fields = list(incoming.keys())
+
+    merged_fields: dict[str, Any] = {}
+    skipped_fields: list[str] = []
+
+    for field in changed_fields:
+        if field not in INVENTORY_CRDT_SAFE_FIELDS or field not in incoming:
+            continue
+        incoming_clock = field_clocks.get(field, fallback_clock)
+        apply_field = claim_entity_field_clock(
+            session,
+            entity_type="InventoryItem",
+            entity_id=existing.id,
+            field_name=field,
+            lamport_counter=incoming_clock,
+            device_id=device_id,
+        )
+        if not apply_field:
+            skipped_fields.append(field)
+            continue
+
+        next_value = incoming[field]
+        if getattr(existing, field, None) != next_value:
+            setattr(existing, field, next_value)
+            merged_fields[field] = next_value
+
+    touch_for_update(existing)
+    event = append_sync_event(
+        session,
+        entity="InventoryItem",
+        operation="UPDATE",
+        entity_id=existing.id,
+        payload={
+            "merged_fields": merged_fields,
+            "skipped_fields": skipped_fields,
+            "changed_fields": changed_fields,
+            "incoming": incoming,
+        },
+        operation_id=operation_id,
+        device_id=device_id,
+        resolution_type="CRDT_MERGED",
+        resolved=True,
+    )
+    apply_server_revision(existing, event.server_revision or 0)
+    session.add(existing)
+    return event.server_revision or 0, merged_fields, skipped_fields
+
+
+def _apply_appointment_crdt_merge(
+    session: Session,
+    *,
+    existing: Any,
+    incoming: dict[str, Any],
+    changed_fields: list[str],
+    field_clocks: dict[str, int],
+    fallback_clock: int,
+    device_id: str,
+    operation_id: str,
+) -> tuple[int, dict[str, Any], list[str]]:
+    if not changed_fields:
+        changed_fields = list(incoming.keys())
+
+    merged_fields: dict[str, Any] = {}
+    skipped_fields: list[str] = []
+
+    for field in changed_fields:
+        if field not in APPOINTMENT_CRDT_SAFE_FIELDS or field not in incoming:
+            continue
+        incoming_clock = field_clocks.get(field, fallback_clock)
+        apply_field = claim_entity_field_clock(
+            session,
+            entity_type="Appointment",
+            entity_id=existing.id,
+            field_name=field,
+            lamport_counter=incoming_clock,
+            device_id=device_id,
+        )
+        if not apply_field:
+            skipped_fields.append(field)
+            continue
+
+        next_value = incoming[field]
+        if getattr(existing, field, None) != next_value:
+            setattr(existing, field, next_value)
+            merged_fields[field] = next_value
+
+    touch_for_update(existing)
+    event = append_sync_event(
+        session,
+        entity="Appointment",
+        operation="UPDATE",
+        entity_id=existing.id,
+        payload={
+            "merged_fields": merged_fields,
+            "skipped_fields": skipped_fields,
+            "changed_fields": changed_fields,
+            "incoming": incoming,
+        },
+        operation_id=operation_id,
+        device_id=device_id,
+        resolution_type="CRDT_MERGED",
+        resolved=True,
+    )
+    apply_server_revision(existing, event.server_revision or 0)
+    session.add(existing)
+    return event.server_revision or 0, merged_fields, skipped_fields
+
+
 def _appointment_suggestions(
     session: Session, staff_name: str, starts_at: datetime, ends_at: datetime, limit: int = 3
-) -> list[str]:
+) -> list[dict[str, str]]:
     duration = ends_at - starts_at
     candidate = starts_at + timedelta(minutes=30)
-    suggestions: list[str] = []
+    suggestions: list[dict[str, str]] = []
+    try:
+        zone = ZoneInfo(settings.appointment_timezone)
+    except ZoneInfoNotFoundError:
+        zone = UTC
 
     for _ in range(24):
         candidate_end = candidate + duration
         overlap = find_appointment_conflict(session, staff_name, candidate, candidate_end)
         if not overlap:
-            suggestions.append(candidate.strftime("%H:%M"))
+            starts_local = candidate.astimezone(zone)
+            ends_local = candidate_end.astimezone(zone)
+            suggestions.append(
+                {
+                    "starts_at": starts_local.isoformat(),
+                    "ends_at": ends_local.isoformat(),
+                    "timezone": str(getattr(zone, "key", "UTC")),
+                }
+            )
             if len(suggestions) >= limit:
                 break
         candidate += timedelta(minutes=30)
 
     return suggestions
+
+
+def _resolve_appointment_schedule_basis(existing: Any, incoming: dict[str, Any]) -> tuple[str | None, datetime | None, datetime | None]:
+    staff_name = incoming.get("staff_name") if incoming.get("staff_name") is not None else getattr(existing, "staff_name", None)
+    starts_at = incoming.get("starts_at") if incoming.get("starts_at") is not None else getattr(existing, "starts_at", None)
+    ends_at = incoming.get("ends_at") if incoming.get("ends_at") is not None else getattr(existing, "ends_at", None)
+
+    if not isinstance(starts_at, datetime) or not isinstance(ends_at, datetime):
+        return staff_name, None, None
+
+    if ends_at <= starts_at:
+        ends_at = starts_at + timedelta(minutes=30)
+    return staff_name, starts_at, ends_at
 
 
 def _apply_generic_change(
@@ -179,6 +413,12 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
     results: list[dict[str, Any]] = []
     device_id = payload["deviceId"]
     previous_revision = latest_server_revision(session)
+    ensure_monotonic_device_cursor(
+        session,
+        device_id=device_id,
+        incoming_revision=payload.get("lastPulledRevision", 0),
+        direction="push",
+    )
 
     for change in payload["changes"]:
         _validate_change(change)
@@ -188,6 +428,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
         operation = change["operation"].upper()
         local_revision = change["localRevision"]
         data = _filtered_payload(entity_name, change.get("data", {}))
+        crdt_changed_fields, crdt_field_clocks = _parse_crdt_meta(change)
 
         duplicate = get_sync_event_by_operation_id(session, operation_id)
         if duplicate:
@@ -220,6 +461,193 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
         try:
             with session.begin_nested():
                 existing = get_active_by_id(session, SYNC_ENTITY_MODELS[entity_name], entity_id)
+
+                if entity_name == "Client" and operation in {"UPDATE", "CREATE"} and existing:
+                    server_revision, merged_fields, skipped_fields = _apply_client_crdt_merge(
+                        session,
+                        existing=existing,
+                        incoming=data,
+                        changed_fields=crdt_changed_fields,
+                        field_clocks=crdt_field_clocks,
+                        fallback_clock=local_revision,
+                        device_id=device_id,
+                        operation_id=operation_id,
+                    )
+                    applied.append({"entity": entity_name, "entityId": entity_id, "serverRevision": server_revision})
+                    results.append(
+                        {
+                            "operationId": operation_id,
+                            "entity": entity_name,
+                            "entityId": entity_id,
+                            "status": "APPLIED",
+                            "resolution": "CRDT_MERGED",
+                            "mergedFields": merged_fields,
+                            "skippedFields": skipped_fields,
+                        }
+                    )
+                    continue
+
+                if entity_name == "InventoryItem" and operation == "UPDATE" and existing and local_revision < existing.server_revision:
+                    effective_changed_fields = crdt_changed_fields or list(data.keys())
+                    strict_fields = sorted({field for field in effective_changed_fields if field in INVENTORY_STRICT_FIELDS})
+                    if strict_fields:
+                        conflict = _conflict_payload(
+                            "INVENTORY_STRICT_FIELD_CONFLICT",
+                            entity_name,
+                            entity_id,
+                            change,
+                            existing.model_dump(mode="json"),
+                        )
+                        conflict["strictFields"] = strict_fields
+                        conflict["expectedServerRevision"] = existing.server_revision
+                        conflict["providedLocalRevision"] = local_revision
+                        enqueue_conflict(
+                            session,
+                            operation_id=operation_id,
+                            entity_type=entity_name,
+                            entity_id=entity_id,
+                            conflict_type="INVENTORY_STRICT_FIELD_CONFLICT",
+                            payload=conflict,
+                        )
+                        conflicts.append(conflict)
+                        results.append(
+                            {
+                                "operationId": operation_id,
+                                "entity": entity_name,
+                                "entityId": entity_id,
+                                "status": "CONFLICT",
+                                "resolution": "REQUIRES_USER_ACTION",
+                            }
+                        )
+                        continue
+
+                    server_revision, merged_fields, skipped_fields = _apply_inventory_crdt_merge(
+                        session,
+                        existing=existing,
+                        incoming=data,
+                        changed_fields=effective_changed_fields,
+                        field_clocks=crdt_field_clocks,
+                        fallback_clock=local_revision,
+                        device_id=device_id,
+                        operation_id=operation_id,
+                    )
+                    applied.append({"entity": entity_name, "entityId": entity_id, "serverRevision": server_revision})
+                    results.append(
+                        {
+                            "operationId": operation_id,
+                            "entity": entity_name,
+                            "entityId": entity_id,
+                            "status": "APPLIED",
+                            "resolution": "CRDT_MERGED",
+                            "mergedFields": merged_fields,
+                            "skippedFields": skipped_fields,
+                        }
+                    )
+                    continue
+
+                if entity_name == "Appointment" and operation == "UPDATE" and existing and local_revision < existing.server_revision:
+                    effective_changed_fields = crdt_changed_fields or list(data.keys())
+                    strict_fields = sorted({field for field in effective_changed_fields if field in APPOINTMENT_STRICT_FIELDS})
+                    if strict_fields:
+                        conflict = _conflict_payload(
+                            "APPOINTMENT_SCHEDULE_CONFLICT",
+                            entity_name,
+                            entity_id,
+                            change,
+                            existing.model_dump(mode="json"),
+                        )
+                        conflict["strictFields"] = strict_fields
+                        conflict["expectedServerRevision"] = existing.server_revision
+                        conflict["providedLocalRevision"] = local_revision
+                        staff_name, starts_at, ends_at = _resolve_appointment_schedule_basis(existing, data)
+                        if staff_name and starts_at and ends_at:
+                            suggestions = _appointment_suggestions(
+                                session,
+                                staff_name,
+                                starts_at,
+                                ends_at,
+                            )
+                            conflict["serverSuggestedNextSlots"] = suggestions
+                            conflict["suggestedResolution"] = "RESCHEDULE"
+                            conflict["suggestedDurationMinutes"] = int((ends_at - starts_at).total_seconds() // 60)
+                            conflict["scheduleContext"] = {
+                                "staff_name": staff_name,
+                                "starts_at": starts_at.isoformat(),
+                                "ends_at": ends_at.isoformat(),
+                                "timezone": settings.appointment_timezone,
+                            }
+                        enqueue_conflict(
+                            session,
+                            operation_id=operation_id,
+                            entity_type=entity_name,
+                            entity_id=entity_id,
+                            conflict_type="APPOINTMENT_SCHEDULE_CONFLICT",
+                            payload=conflict,
+                        )
+                        conflicts.append(conflict)
+                        results.append(
+                            {
+                                "operationId": operation_id,
+                                "entity": entity_name,
+                                "entityId": entity_id,
+                                "status": "CONFLICT",
+                                "resolution": "REQUIRES_USER_ACTION",
+                            }
+                        )
+                        continue
+
+                    server_revision, merged_fields, skipped_fields = _apply_appointment_crdt_merge(
+                        session,
+                        existing=existing,
+                        incoming=data,
+                        changed_fields=effective_changed_fields,
+                        field_clocks=crdt_field_clocks,
+                        fallback_clock=local_revision,
+                        device_id=device_id,
+                        operation_id=operation_id,
+                    )
+                    applied.append({"entity": entity_name, "entityId": entity_id, "serverRevision": server_revision})
+                    results.append(
+                        {
+                            "operationId": operation_id,
+                            "entity": entity_name,
+                            "entityId": entity_id,
+                            "status": "APPLIED",
+                            "resolution": "CRDT_MERGED",
+                            "mergedFields": merged_fields,
+                            "skippedFields": skipped_fields,
+                        }
+                    )
+                    continue
+
+                if (
+                    existing
+                    and operation in {"UPDATE", "DELETE"}
+                    and entity_name != "Client"
+                    and local_revision != existing.server_revision
+                ):
+                    conflict = _conflict_payload("STALE_WRITE", entity_name, entity_id, change, existing.model_dump(mode="json"))
+                    conflict["expectedServerRevision"] = existing.server_revision
+                    conflict["providedLocalRevision"] = local_revision
+                    enqueue_conflict(
+                        session,
+                        operation_id=operation_id,
+                        entity_type=entity_name,
+                        entity_id=entity_id,
+                        conflict_type="STALE_WRITE",
+                        payload=conflict,
+                    )
+                    conflicts.append(conflict)
+                    results.append(
+                        {
+                            "operationId": operation_id,
+                            "entity": entity_name,
+                            "entityId": entity_id,
+                            "status": "CONFLICT",
+                            "resolution": "REQUIRES_USER_ACTION",
+                        }
+                    )
+                    continue
 
                 if existing and local_revision < existing.server_revision:
                     if entity_name == "Client" and operation in {"UPDATE", "CREATE"}:
@@ -459,6 +887,14 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
         for event in list_sync_events_since(session, payload.get("lastPulledRevision", 0))
     ]
     new_revision = server_changes[-1]["serverRevision"] if server_changes else payload.get("lastPulledRevision", 0)
+    advance_device_cursor(
+        session,
+        device_id=device_id,
+        revision=new_revision,
+        direction="push",
+        operation_id=payload["changes"][-1]["operationId"] if payload.get("changes") else None,
+    )
+    session.commit()
     applied_revisions = [entry["serverRevision"] for entry in applied if entry.get("serverRevision") is not None]
     if applied_revisions:
         assert max(applied_revisions) > previous_revision

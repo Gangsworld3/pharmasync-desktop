@@ -160,6 +160,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS LocalOperation (
     id TEXT PRIMARY KEY,
     operationId TEXT NOT NULL UNIQUE,
+    idempotencyKey TEXT UNIQUE,
     entityType TEXT NOT NULL,
     entityId TEXT NOT NULL,
     operation TEXT NOT NULL,
@@ -170,6 +171,9 @@ db.exec(`
     errorDetail TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,
     lastAttemptAt DATETIME,
+    nextAttemptAt DATETIME,
+    backoffMs INTEGER NOT NULL DEFAULT 0,
+    deadLetteredAt DATETIME,
     createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -200,6 +204,13 @@ ensureColumn("Message", "conversationId", "TEXT");
 ensureColumn("Message", "senderId", "TEXT");
 ensureColumn("Message", "serverRevision", "INTEGER NOT NULL DEFAULT 0");
 ensureColumn("Message", "lastModifiedLocally", "DATETIME");
+ensureColumn("LocalOperation", "idempotencyKey", "TEXT");
+ensureColumn("LocalOperation", "nextAttemptAt", "DATETIME");
+ensureColumn("LocalOperation", "backoffMs", "INTEGER NOT NULL DEFAULT 0");
+ensureColumn("LocalOperation", "deadLetteredAt", "DATETIME");
+
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_localoperation_idempotency ON LocalOperation(idempotencyKey) WHERE idempotencyKey IS NOT NULL;`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_localoperation_retry ON LocalOperation(status, nextAttemptAt);`);
 
 db.exec(`
   UPDATE Client SET lastModifiedLocally = COALESCE(lastModifiedLocally, CURRENT_TIMESTAMP);

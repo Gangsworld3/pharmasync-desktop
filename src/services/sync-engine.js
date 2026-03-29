@@ -5,6 +5,7 @@ import {
   getConflictLocalOperations,
   getDeviceState,
   getPendingLocalOperations,
+  recoverInProgressLocalOperations,
   updateDeviceState,
   updateLocalOperation,
   upsertAppointmentFromServer,
@@ -24,22 +25,200 @@ let syncTimer = null;
 let syncInFlight = false;
 let authToken = null;
 let retryBackoffMs = 0;
+let nextScheduledAt = null;
+let realtimeSocket = null;
+let realtimeReconnectTimer = null;
+let realtimeReconnectMs = 0;
+let realtimeEnabled = false;
+
+const DEFAULT_SYNC_INTERVAL_MS = 15000;
+const DEFAULT_RETRY_BASE_MS = 2500;
+const DEFAULT_RETRY_MAX_MS = 300000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 12000;
+const DEFAULT_PUSH_BATCH_SIZE = 25;
+const DEFAULT_MAX_REQUEST_RETRIES = 3;
+const DEFAULT_MAX_OPERATION_ATTEMPTS = 8;
+const DEFAULT_REALTIME_RETRY_BASE_MS = 3000;
+const DEFAULT_REALTIME_RETRY_MAX_MS = 120000;
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 function getRemoteConfig() {
   const settings = getDesktopSettings();
+  const syncIntervalMs = Number(settings.syncIntervalMs ?? process.env.PHARMASYNC_SYNC_INTERVAL_MS ?? DEFAULT_SYNC_INTERVAL_MS);
+
   return {
     baseUrl: settings.backendUrl ?? process.env.PHARMASYNC_REMOTE_API_URL ?? "http://127.0.0.1:8090",
     email: process.env.PHARMASYNC_SYNC_EMAIL ?? null,
     password: process.env.PHARMASYNC_SYNC_PASSWORD ?? null,
-    syncIntervalMs: Number(settings.syncIntervalMs ?? process.env.PHARMASYNC_SYNC_INTERVAL_MS ?? 15000)
+    syncIntervalMs: Number.isFinite(syncIntervalMs) && syncIntervalMs > 0 ? syncIntervalMs : DEFAULT_SYNC_INTERVAL_MS,
+    retryBaseMs: Number(process.env.PHARMASYNC_SYNC_RETRY_BASE_MS ?? DEFAULT_RETRY_BASE_MS),
+    retryMaxMs: Number(process.env.PHARMASYNC_SYNC_RETRY_MAX_MS ?? DEFAULT_RETRY_MAX_MS),
+    requestTimeoutMs: Number(process.env.PHARMASYNC_SYNC_REQUEST_TIMEOUT_MS ?? DEFAULT_REQUEST_TIMEOUT_MS),
+    pushBatchSize: Number(process.env.PHARMASYNC_SYNC_PUSH_BATCH_SIZE ?? DEFAULT_PUSH_BATCH_SIZE),
+    maxRequestRetries: Number(process.env.PHARMASYNC_SYNC_REQUEST_RETRIES ?? DEFAULT_MAX_REQUEST_RETRIES),
+    maxOperationAttempts: Number(process.env.PHARMASYNC_SYNC_MAX_OPERATION_ATTEMPTS ?? DEFAULT_MAX_OPERATION_ATTEMPTS),
+    realtimeRetryBaseMs: Number(process.env.PHARMASYNC_SYNC_REALTIME_RETRY_BASE_MS ?? DEFAULT_REALTIME_RETRY_BASE_MS),
+    realtimeRetryMaxMs: Number(process.env.PHARMASYNC_SYNC_REALTIME_RETRY_MAX_MS ?? DEFAULT_REALTIME_RETRY_MAX_MS)
   };
 }
 
-async function getAuthHeaders() {
+function sanitizePositiveNumber(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function jitterMs(baseMs) {
+  const bounded = Math.max(250, baseMs);
+  const spread = Math.floor(bounded * 0.3);
+  const randomized = bounded + Math.floor(Math.random() * (spread * 2 + 1)) - spread;
+  return Math.max(250, randomized);
+}
+
+function classifyErrorMessage(error) {
+  const message = String(error?.message ?? "").toLowerCase();
+  return message.includes("network")
+    || message.includes("timed out")
+    || message.includes("timeout")
+    || message.includes("fetch failed")
+    || message.includes("socket")
+    || message.includes("econnrefused")
+    || message.includes("econnreset")
+    || message.includes("enotfound")
+    || message.includes("temporarily unavailable");
+}
+
+function parseJsonSafe(raw) {
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function computeNextBackoffMs(operation, config) {
+  const retryBase = sanitizePositiveNumber(config.retryBaseMs, DEFAULT_RETRY_BASE_MS);
+  const retryMax = sanitizePositiveNumber(config.retryMaxMs, DEFAULT_RETRY_MAX_MS);
+  if (!operation.backoffMs || operation.backoffMs <= 0) {
+    return retryBase;
+  }
+  return Math.min(operation.backoffMs * 2, retryMax);
+}
+
+function isOperationDue(operation, now, config) {
+  if (operation.status === "PENDING") {
+    return true;
+  }
+
+  if (operation.nextAttemptAt) {
+    return new Date(operation.nextAttemptAt).getTime() <= now.getTime();
+  }
+
+  if (!operation.lastAttemptAt) {
+    return true;
+  }
+
+  const fallbackCooldownMs = computeNextBackoffMs(operation, config);
+  return now.getTime() - new Date(operation.lastAttemptAt).getTime() >= fallbackCooldownMs;
+}
+
+function buildOperationProgress(operation, config) {
+  const nextAttemptAt = operation.nextAttemptAt
+    ? new Date(operation.nextAttemptAt)
+    : (operation.lastAttemptAt
+      ? new Date(new Date(operation.lastAttemptAt).getTime() + computeNextBackoffMs(operation, config))
+      : null);
+  const remainingMs = nextAttemptAt ? Math.max(0, nextAttemptAt.getTime() - Date.now()) : 0;
+
+  return {
+    operationId: operation.operationId,
+    idempotencyKey: operation.idempotencyKey ?? null,
+    status: operation.status,
+    attempts: operation.attempts ?? 0,
+    backoffMs: operation.backoffMs ?? 0,
+    lastAttemptAt: operation.lastAttemptAt ?? null,
+    nextAttemptAt: nextAttemptAt?.toISOString() ?? null,
+    remainingMs
+  };
+}
+
+function buildConflictFieldDiff(localData, serverData) {
+  if (!localData || !serverData || typeof localData !== "object" || typeof serverData !== "object") {
+    return null;
+  }
+
+  const keys = new Set([...Object.keys(localData), ...Object.keys(serverData)]);
+  const fieldDiff = {};
+
+  for (const key of keys) {
+    const localValue = localData[key];
+    const serverValue = serverData[key];
+    if (JSON.stringify(localValue) !== JSON.stringify(serverValue)) {
+      fieldDiff[key] = [localValue ?? null, serverValue ?? null];
+    }
+  }
+
+  return Object.keys(fieldDiff).length ? fieldDiff : null;
+}
+
+function enrichConflictPayload(conflict, operation) {
+  const localData = conflict?.local?.data ?? parsePayloadJson(operation.payloadJson);
+  const serverData = conflict?.server ?? null;
+  const fieldDiff = buildConflictFieldDiff(localData, serverData);
+
+  return {
+    ...(conflict ?? {}),
+    localVersion: operation.localRevision ?? null,
+    serverVersion: conflict?.serverRevision ?? serverData?.server_revision ?? null,
+    fieldDiff
+  };
+}
+
+async function transitionOperationToRetryScheduled(operation, reason, config, now = new Date()) {
+  const attempts = Number(operation.attempts ?? 0);
+  const maxAttempts = sanitizePositiveNumber(config.maxOperationAttempts, DEFAULT_MAX_OPERATION_ATTEMPTS);
+  const nextAttempts = attempts + 1;
+
+  if (nextAttempts >= maxAttempts) {
+    await updateLocalOperation(operation.id, {
+      status: "DEAD_LETTER",
+      errorDetail: reason,
+      attempts: { increment: 1 },
+      lastAttemptAt: now,
+      deadLetteredAt: now,
+      nextAttemptAt: null
+    });
+    return "DEAD_LETTER";
+  }
+
+  const nextBackoffMs = computeNextBackoffMs(operation, config);
+  await updateLocalOperation(operation.id, {
+    status: "RETRY_SCHEDULED",
+    errorDetail: reason,
+    attempts: { increment: 1 },
+    backoffMs: nextBackoffMs,
+    lastAttemptAt: now,
+    nextAttemptAt: new Date(now.getTime() + nextBackoffMs),
+    deadLetteredAt: null
+  });
+  return "RETRY_SCHEDULED";
+}
+
+async function getAuthHeaders(forceRefresh = false) {
   const { baseUrl, email, password } = getRemoteConfig();
   const session = getDesktopSession();
 
-  if (!authToken && session?.accessToken) {
+  if (forceRefresh) {
+    authToken = null;
+  }
+
+  if (!authToken && session?.accessToken && !forceRefresh) {
     authToken = session.accessToken;
   }
 
@@ -71,6 +250,64 @@ async function getAuthHeaders() {
     Authorization: `Bearer ${authToken}`,
     "Content-Type": "application/json"
   };
+}
+
+async function requestWithRetry(url, init, config) {
+  const maxRequestRetries = sanitizePositiveNumber(config.maxRequestRetries, DEFAULT_MAX_REQUEST_RETRIES);
+  const timeoutMs = sanitizePositiveNumber(config.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS);
+  let attempt = 0;
+  let lastError = null;
+
+  while (attempt < maxRequestRetries) {
+    attempt += 1;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+
+      if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < maxRequestRetries) {
+        await sleep(jitterMs((2 ** (attempt - 1)) * sanitizePositiveNumber(config.retryBaseMs, DEFAULT_RETRY_BASE_MS)));
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      clearTimeout(timer);
+      lastError = error;
+
+      const retryable = error?.name === "AbortError" || classifyErrorMessage(error);
+      if (!retryable || attempt >= maxRequestRetries) {
+        throw error;
+      }
+
+      await sleep(jitterMs((2 ** (attempt - 1)) * sanitizePositiveNumber(config.retryBaseMs, DEFAULT_RETRY_BASE_MS)));
+    }
+  }
+
+  throw lastError ?? new Error("Request failed.");
+}
+
+async function requestJson(path, init, config) {
+  const response = await requestWithRetry(`${getRemoteConfig().baseUrl}${path}`, init, config);
+  const raw = await response.text();
+  const parsed = parseJsonSafe(raw);
+  return { response, body: parsed };
+}
+
+async function authorizedJsonRequest(path, init) {
+  const config = getRemoteConfig();
+  let headers = await getAuthHeaders();
+  let result = await requestJson(path, { ...init, headers: { ...headers, ...(init.headers ?? {}) } }, config);
+
+  if (result.response.status === 401) {
+    authToken = null;
+    headers = await getAuthHeaders(true);
+    result = await requestJson(path, { ...init, headers: { ...headers, ...(init.headers ?? {}) } }, config);
+  }
+
+  return result;
 }
 
 export async function authenticateDesktopSession(email, password) {
@@ -107,6 +344,100 @@ function parsePayloadJson(raw) {
   return raw ? JSON.parse(raw) : null;
 }
 
+function buildWebSocketUrl(baseUrl, token) {
+  const url = new URL(baseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/sync/ws";
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
+async function startRealtimeSyncListener() {
+  if (typeof WebSocket === "undefined" || realtimeSocket) {
+    return;
+  }
+
+  const session = getDesktopSession();
+  if (!session?.accessToken) {
+    return;
+  }
+
+  realtimeEnabled = true;
+  const { baseUrl, realtimeRetryBaseMs, realtimeRetryMaxMs } = getRemoteConfig();
+  const retryBase = sanitizePositiveNumber(realtimeRetryBaseMs, DEFAULT_REALTIME_RETRY_BASE_MS);
+  const retryMax = sanitizePositiveNumber(realtimeRetryMaxMs, DEFAULT_REALTIME_RETRY_MAX_MS);
+
+  const connect = () => {
+    if (!realtimeEnabled) {
+      return;
+    }
+
+    try {
+      const wsUrl = buildWebSocketUrl(baseUrl, session.accessToken);
+      realtimeSocket = new WebSocket(wsUrl);
+    } catch (error) {
+      appendDesktopLog("error.log", `sync realtime connect failure detail=${error.message}`);
+      scheduleReconnect(retryBase, retryMax);
+      return;
+    }
+
+    realtimeSocket.onopen = () => {
+      realtimeReconnectMs = 0;
+      appendDesktopLog("sync.log", "sync realtime connected");
+    };
+
+    realtimeSocket.onmessage = (event) => {
+      try {
+        const message = typeof event.data === "string" ? JSON.parse(event.data) : null;
+        if (message?.type === "sync.revision") {
+          void runSyncCycle();
+        }
+      } catch {
+        // no-op: ignore malformed realtime payloads
+      }
+    };
+
+    realtimeSocket.onclose = () => {
+      realtimeSocket = null;
+      if (!realtimeEnabled) {
+        return;
+      }
+      scheduleReconnect(retryBase, retryMax);
+    };
+
+    realtimeSocket.onerror = () => {
+      // close handler will schedule reconnect
+    };
+  };
+
+  const scheduleReconnect = (base, max) => {
+    if (realtimeReconnectTimer || !realtimeEnabled) {
+      return;
+    }
+    realtimeReconnectMs = realtimeReconnectMs
+      ? Math.min(jitterMs(realtimeReconnectMs * 2), max)
+      : base;
+    realtimeReconnectTimer = setTimeout(() => {
+      realtimeReconnectTimer = null;
+      connect();
+    }, realtimeReconnectMs);
+  };
+
+  connect();
+}
+
+function stopRealtimeSyncListener() {
+  realtimeEnabled = false;
+  if (realtimeReconnectTimer) {
+    clearTimeout(realtimeReconnectTimer);
+    realtimeReconnectTimer = null;
+  }
+  if (realtimeSocket) {
+    realtimeSocket.close();
+    realtimeSocket = null;
+  }
+}
+
 function sortServerChanges(changes) {
   return [...changes].sort((left, right) => (left.serverRevision ?? 0) - (right.serverRevision ?? 0));
 }
@@ -114,12 +445,36 @@ function sortServerChanges(changes) {
 function buildSyncChange(operationRow) {
   return {
     operationId: operationRow.operationId,
+    idempotencyKey: operationRow.idempotencyKey ?? operationRow.operationId,
     entity: operationRow.entityType,
     operation: operationRow.operation,
     entityId: operationRow.entityId,
     localRevision: operationRow.localRevision,
     data: parsePayloadJson(operationRow.payloadJson)
   };
+}
+
+function buildSyncResultSummary(results = []) {
+  const summary = {
+    applied: 0,
+    idempotentReplay: 0,
+    conflict: 0,
+    rejected: 0
+  };
+
+  for (const result of results) {
+    if (result.status === "APPLIED") {
+      summary.applied += 1;
+    } else if (result.status === "IDEMPOTENT_REPLAY") {
+      summary.idempotentReplay += 1;
+    } else if (result.status === "CONFLICT") {
+      summary.conflict += 1;
+    } else {
+      summary.rejected += 1;
+    }
+  }
+
+  return summary;
 }
 
 async function markSyncStart(deviceState) {
@@ -162,79 +517,129 @@ export async function recordLocalOperation(entry) {
 
 export async function pushPendingChanges() {
   const deviceState = await ensureDeviceState();
-  const pendingOperations = await getPendingLocalOperations();
+  const config = getRemoteConfig();
+  const allPendingOperations = await getPendingLocalOperations();
+  const now = new Date();
+  const schedulableStatuses = new Set(["PENDING", "RETRY", "RETRY_SCHEDULED", "IN_PROGRESS"]);
+  const pendingOperations = allPendingOperations.filter((operation) => schedulableStatuses.has(operation.status));
+  const dueOperations = pendingOperations.filter((operation) => isOperationDue(operation, now, config));
+  const deferredOperations = pendingOperations.filter((operation) => !isOperationDue(operation, now, config));
 
-  if (!pendingOperations.length) {
-    return { pushed: 0, revision: deviceState.lastPulledRevision, results: [] };
+  if (!dueOperations.length) {
+    return {
+      pushed: 0,
+      revision: deviceState.lastPulledRevision,
+      results: [],
+      deferred: deferredOperations.length,
+      deferredOperations: deferredOperations.map((operation) => buildOperationProgress(operation, config))
+    };
   }
 
-  const headers = await getAuthHeaders();
-  const payload = {
-    deviceId: deviceState.deviceId,
-    lastPulledRevision: deviceState.lastPulledRevision,
-    changes: pendingOperations.map(buildSyncChange)
-  };
+  const batchSize = Math.max(1, sanitizePositiveNumber(config.pushBatchSize, DEFAULT_PUSH_BATCH_SIZE));
+  const aggregatedResults = [];
+  const aggregatedServerChanges = [];
+  let latestRevision = deviceState.lastPulledRevision;
 
-  const response = await fetch(`${getRemoteConfig().baseUrl}/sync/push`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Push failed (${response.status}).`);
-  }
-
-  const body = await response.json();
-  const results = body.data.results;
-  const serverChanges = sortServerChanges(body.data.serverChanges ?? []);
-
-  for (const operation of pendingOperations) {
-    const result = results.find((entry) => entry.operationId === operation.operationId);
-    if (!result) {
-      continue;
-    }
-
-    if (result.status === "APPLIED" || result.status === "IDEMPOTENT_REPLAY") {
+  for (let index = 0; index < dueOperations.length; index += batchSize) {
+    const batch = dueOperations.slice(index, index + batchSize);
+    const batchAttemptStartedAt = new Date();
+    for (const operation of batch) {
       await updateLocalOperation(operation.id, {
-        status: "SYNCED",
+        status: "IN_PROGRESS",
         errorDetail: null,
-        conflictPayloadJson: null,
-        attempts: { increment: 1 },
-        lastAttemptAt: new Date()
+        lastAttemptAt: batchAttemptStartedAt
       });
-      continue;
     }
 
-    if (result.status === "CONFLICT") {
-      const conflict = body.data.conflicts.find((entry) => entry.entityId === operation.entityId && entry.local.operationId === operation.operationId);
-      await updateLocalOperation(operation.id, {
-        status: "CONFLICT",
-        conflictPayloadJson: conflict,
-        errorDetail: null,
-        attempts: { increment: 1 },
-        lastAttemptAt: new Date()
+    const payload = {
+      deviceId: deviceState.deviceId,
+      lastPulledRevision: latestRevision,
+      changes: batch.map(buildSyncChange)
+    };
+
+    let response;
+    let body;
+    try {
+      const result = await authorizedJsonRequest("/sync/push", {
+        method: "POST",
+        body: JSON.stringify(payload)
       });
-      continue;
+      response = result.response;
+      body = result.body;
+    } catch (error) {
+      for (const operation of batch) {
+        await transitionOperationToRetryScheduled(operation, error.message || "Push request failed", config, new Date());
+      }
+      throw error;
     }
 
-    await updateLocalOperation(operation.id, {
-      status: "RETRY",
-      errorDetail: result.error ?? "Remote rejection",
-      attempts: { increment: 1 },
-      lastAttemptAt: new Date()
-    });
-  }
+    if (!response.ok) {
+      for (const operation of batch) {
+        await transitionOperationToRetryScheduled(operation, `Push failed (${response.status})`, config, new Date());
+      }
+      throw new Error(`Push failed (${response.status}).`);
+    }
 
-  for (const change of serverChanges) {
-    await applyServerChange(change);
+    const results = body.data?.results ?? [];
+    const conflicts = body.data?.conflicts ?? [];
+    const serverChanges = sortServerChanges(body.data?.serverChanges ?? []);
+
+    for (const operation of batch) {
+      const result = results.find((entry) => entry.operationId === operation.operationId);
+      if (!result) {
+        await transitionOperationToRetryScheduled(operation, "Push result missing for operation; scheduled retry.", config, new Date());
+        continue;
+      }
+
+      if (result.status === "APPLIED" || result.status === "IDEMPOTENT_REPLAY") {
+        await updateLocalOperation(operation.id, {
+          status: "SYNCED",
+          errorDetail: null,
+          conflictPayloadJson: null,
+          attempts: { increment: 1 },
+          backoffMs: 0,
+          nextAttemptAt: null,
+          lastAttemptAt: new Date(),
+          deadLetteredAt: null
+        });
+        continue;
+      }
+
+      if (result.status === "CONFLICT") {
+        const conflict = conflicts.find((entry) => entry.entityId === operation.entityId && entry.local.operationId === operation.operationId);
+        const enrichedConflict = enrichConflictPayload(conflict, operation);
+        await updateLocalOperation(operation.id, {
+          status: "CONFLICT",
+          conflictPayloadJson: enrichedConflict ?? { type: "CONFLICT", resolution: "Manual resolution required" },
+          errorDetail: null,
+          attempts: { increment: 1 },
+          backoffMs: 0,
+          nextAttemptAt: null,
+          lastAttemptAt: new Date()
+        });
+        continue;
+      }
+
+      await transitionOperationToRetryScheduled(operation, result.error ?? "Remote rejection", config, new Date());
+    }
+
+    for (const change of serverChanges) {
+      await applyServerChange(change);
+    }
+
+    aggregatedResults.push(...results);
+    aggregatedServerChanges.push(...serverChanges);
+    latestRevision = Math.max(latestRevision, body.meta?.revision ?? latestRevision);
   }
 
   return {
-    pushed: pendingOperations.length,
-    revision: body.meta.revision,
-    serverChanges,
-    results
+    pushed: dueOperations.length,
+    revision: latestRevision,
+    serverChanges: aggregatedServerChanges,
+    results: aggregatedResults,
+    resultSummary: buildSyncResultSummary(aggregatedResults),
+    deferred: deferredOperations.length,
+    deferredOperations: deferredOperations.map((operation) => buildOperationProgress(operation, config))
   };
 }
 
@@ -257,17 +662,15 @@ async function applyServerChange(change) {
 
 export async function pullServerChanges() {
   const deviceState = await ensureDeviceState();
-  const headers = await getAuthHeaders();
-  const response = await fetch(`${getRemoteConfig().baseUrl}/sync/pull?since=${deviceState.lastPulledRevision}`, {
-    method: "GET",
-    headers
+  const deviceIdParam = encodeURIComponent(deviceState.deviceId);
+  const { response, body } = await authorizedJsonRequest(`/sync/pull?since=${deviceState.lastPulledRevision}&deviceId=${deviceIdParam}`, {
+    method: "GET"
   });
 
   if (!response.ok) {
     throw new Error(`Pull failed (${response.status}).`);
   }
 
-  const body = await response.json();
   const serverChanges = sortServerChanges(body.data.serverChanges ?? []);
 
   for (const change of serverChanges) {
@@ -299,26 +702,37 @@ export async function runSyncCycle() {
   const deviceState = await ensureDeviceState();
 
   try {
+    await recoverInProgressLocalOperations();
     await markSyncStart(deviceState);
     const pushResult = await pushPendingChanges();
     const pullResult = await pullServerChanges();
     const latestRevision = Math.max(pushResult.revision ?? 0, pullResult.revision ?? 0);
     await markSyncFinish(deviceState, latestRevision);
     retryBackoffMs = 0;
+    nextScheduledAt = null;
 
     return {
       status: "success",
       push: pushResult,
       pull: pullResult,
-      conflicts: await getConflictLocalOperations()
+      conflicts: await getConflictLocalOperations(),
+      retryBackoffMs,
+      nextScheduledAt
     };
   } catch (error) {
     authToken = null;
-    retryBackoffMs = retryBackoffMs ? Math.min(retryBackoffMs * 2, 300000) : Math.min(getRemoteConfig().syncIntervalMs * 2, 300000);
+    const { syncIntervalMs, retryMaxMs } = getRemoteConfig();
+    const retryMax = sanitizePositiveNumber(retryMaxMs, DEFAULT_RETRY_MAX_MS);
+    retryBackoffMs = retryBackoffMs
+      ? Math.min(jitterMs(retryBackoffMs * 2), retryMax)
+      : Math.min(jitterMs(syncIntervalMs * 2), retryMax);
+    nextScheduledAt = new Date(Date.now() + retryBackoffMs);
     await markSyncFailure(deviceState, error);
     return {
       status: "error",
-      error: error.message
+      error: error.message,
+      retryBackoffMs,
+      nextRetryAt: nextScheduledAt?.toISOString() ?? null
     };
   } finally {
     syncInFlight = false;
@@ -344,7 +758,9 @@ export async function getSyncEngineStatus() {
     conflicts: conflictOperations.length,
     remoteBaseUrl: deviceState.remoteBaseUrl ?? getRemoteConfig().baseUrl,
     authenticated: Boolean(session?.accessToken),
-    sessionEmail: session?.email ?? null
+    sessionEmail: session?.email ?? null,
+    retryBackoffMs,
+    nextScheduledAt: nextScheduledAt?.toISOString() ?? null
   };
 }
 
@@ -354,14 +770,18 @@ export async function startBackgroundSyncLoop(intervalMs = null) {
   if (syncTimer) {
     return;
   }
+  await startRealtimeSyncListener();
 
   const schedule = async () => {
     await runSyncCycle().catch(() => {});
     const nextDelay = retryBackoffMs || Number(intervalMs ?? getRemoteConfig().syncIntervalMs);
+    nextScheduledAt = new Date(Date.now() + nextDelay);
     syncTimer = setTimeout(schedule, nextDelay);
   };
 
-  syncTimer = setTimeout(schedule, Number(intervalMs ?? getRemoteConfig().syncIntervalMs));
+  const initialDelay = Number(intervalMs ?? getRemoteConfig().syncIntervalMs);
+  nextScheduledAt = new Date(Date.now() + initialDelay);
+  syncTimer = setTimeout(schedule, initialDelay);
 }
 
 export function stopBackgroundSyncLoop() {
@@ -369,4 +789,6 @@ export function stopBackgroundSyncLoop() {
     clearTimeout(syncTimer);
     syncTimer = null;
   }
+  stopRealtimeSyncListener();
+  nextScheduledAt = null;
 }

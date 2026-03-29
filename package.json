@@ -13,7 +13,9 @@
     "dist": "electron-builder --win nsis portable",
     "db:generate": "prisma generate",
     "db:push": "node src/db/init-sqlite.js",
-    "db:seed": "node src/db/seed.js"
+    "db:seed": "node src/db/seed.js",
+    "test:desktop-sync": "node --test desktop-tests/sync-resilience.test.js",
+    "test:desktop-chaos": "node --test desktop-tests/sync-chaos.test.js"
   },
   "engines": {
     "node": ">=20"

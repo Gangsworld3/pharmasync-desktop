@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 
@@ -202,11 +202,52 @@ class SyncEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
 
 
+class SyncEventAudit(SQLModel, table=True):
+    __tablename__ = "sync_event_audit"
+
+    id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
+    server_revision: int = Field(sa_column=Column(BigInteger, ForeignKey("sync_events.server_revision"), nullable=False, unique=True, index=True))
+    operation_id: str = Field(sa_column=Column(String(128), nullable=False, index=True))
+    payload_hash: str = Field(sa_column=Column(String(128), nullable=False))
+    previous_event_hash: Optional[str] = Field(default=None, sa_column=Column(String(128), nullable=True))
+    event_hash: str = Field(sa_column=Column(String(128), nullable=False, unique=True, index=True))
+    hash_algorithm: str = Field(default="sha256", sa_column=Column(String(32), nullable=False, server_default=text("'sha256'")))
+    created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+
+
 class ServerState(SQLModel, table=True):
     __tablename__ = "server_state"
 
     scope: str = Field(default="global", sa_column=Column(String(32), primary_key=True))
     current_revision: int = Field(default=0, sa_column=Column(BigInteger, nullable=False, server_default=text("0")))
+    updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+
+
+class DeviceSyncState(SQLModel, table=True):
+    __tablename__ = "device_sync_state"
+
+    device_id: str = Field(sa_column=Column(String(128), primary_key=True))
+    last_seen_revision: int = Field(default=0, sa_column=Column(BigInteger, nullable=False, server_default=text("0")))
+    last_push_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
+    last_pull_at: Optional[datetime] = Field(default=None, sa_column=Column(DateTime(timezone=True), nullable=True))
+    last_operation_id: Optional[str] = Field(default=None, sa_column=Column(String(128), nullable=True))
+    created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+    updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+
+
+class EntityFieldClock(SQLModel, table=True):
+    __tablename__ = "entity_field_clocks"
+    __table_args__ = (
+        UniqueConstraint("entity_type", "entity_id", "field_name", name="uq_entity_field_clocks_entity_field"),
+        CheckConstraint("lamport_counter >= 0", name="ck_entity_field_clocks_lamport_non_negative"),
+    )
+
+    id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
+    entity_type: str = Field(sa_column=Column(String(64), nullable=False, index=True))
+    entity_id: str = Field(sa_column=Column(String(64), nullable=False, index=True))
+    field_name: str = Field(sa_column=Column(String(64), nullable=False, index=True))
+    lamport_counter: int = Field(default=0, sa_column=Column(BigInteger, nullable=False, server_default=text("0")))
+    device_id: str = Field(default="", sa_column=Column(String(128), nullable=False, server_default=text("''")))
     updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
 
 

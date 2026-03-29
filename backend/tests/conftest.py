@@ -76,6 +76,9 @@ def db_session():
     table_names = [
         "idempotency_keys",
         "refresh_tokens",
+        "sync_event_audit",
+        "entity_field_clocks",
+        "device_sync_state",
         "invoice_line_items",
         "appointments",
         "conflict_queue",

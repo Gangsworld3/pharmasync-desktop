@@ -7,7 +7,9 @@ const state = {
     conflicts: 0,
     lastPulledRevision: 0,
     lastSyncCompletedAt: null,
-    lastSyncError: null
+    lastSyncError: null,
+    retryBackoffMs: 0,
+    nextScheduledAt: null
   },
   summary: {
     clients: 0,
@@ -89,8 +91,15 @@ const translations = {
 const el = (id) => document.getElementById(id);
 
 function syncPresentation(syncStatus) {
+  const retrySeconds = syncStatus.retryBackoffMs ? Math.ceil(syncStatus.retryBackoffMs / 1000) : null;
   if (syncStatus.syncStatus === "ERROR") {
-    return { text: "Needs attention", className: "sync-error", hero: "Reconnecting…", line: syncStatus.lastSyncError ?? "Network or server attention needed." };
+    const retryLine = retrySeconds ? ` Next retry in ~${retrySeconds}s.` : "";
+    return {
+      text: "Needs attention",
+      className: "sync-error",
+      hero: "Reconnecting...",
+      line: `${syncStatus.lastSyncError ?? "Network or server attention needed."}${retryLine}`
+    };
   }
 
   if (syncStatus.conflicts > 0) {
@@ -98,15 +107,15 @@ function syncPresentation(syncStatus) {
   }
 
   if (syncStatus.syncStatus === "SYNCING") {
-    return { text: "Syncing changes…", className: "sync-active", hero: "Syncing changes…", line: "Local work is safe. Cloud reconciliation is running." };
+    return { text: "Syncing changes...", className: "sync-active", hero: "Syncing changes...", line: "Local work is safe. Cloud reconciliation is running." };
   }
 
   if (syncStatus.pendingOperations > 0) {
-    return { text: "Queued locally", className: "sync-active", hero: "Saved locally • syncing…", line: `${syncStatus.pendingOperations} local changes waiting for sync.` };
+    return { text: "Queued locally", className: "sync-active", hero: "Saved locally - syncing...", line: `${syncStatus.pendingOperations} local changes waiting for sync.` };
   }
 
   if (syncStatus.remoteBaseUrl && syncStatus.lastPulledRevision > 0) {
-    return { text: "Synced", className: "sync-ok", hero: `Revision ${syncStatus.lastPulledRevision} • synced`, line: "Everything local has been reconciled to the server." };
+    return { text: "Synced", className: "sync-ok", hero: `Revision ${syncStatus.lastPulledRevision} - synced`, line: "Everything local has been reconciled to the server." };
   }
 
   return { text: "Waiting", className: "sync-idle", hero: "Waiting for first sync", line: "The desktop is ready to work locally." };
@@ -367,7 +376,9 @@ function renderSyncCenter() {
     ["Pending operations", String(state.syncStatus.pendingOperations ?? 0)],
     ["Conflicts", `${state.syncStatus.conflicts ?? 0} waiting`],
     ["Last revision", String(state.syncStatus.lastPulledRevision ?? 0)],
-    ["Last sync", state.syncStatus.lastSyncCompletedAt ? new Date(state.syncStatus.lastSyncCompletedAt).toLocaleTimeString() : "Not synced yet"]
+    ["Last sync", state.syncStatus.lastSyncCompletedAt ? new Date(state.syncStatus.lastSyncCompletedAt).toLocaleTimeString() : "Not synced yet"],
+    ["Retry backoff", state.syncStatus.retryBackoffMs ? `${Math.ceil(state.syncStatus.retryBackoffMs / 1000)}s` : "none"],
+    ["Next scheduled run", state.syncStatus.nextScheduledAt ? new Date(state.syncStatus.nextScheduledAt).toLocaleTimeString() : "not scheduled"]
   ];
 
   el("syncGrid").innerHTML = syncLines.map(([title, body]) => `
@@ -416,11 +427,13 @@ function renderConflictCenter() {
       <div class="list-row"><p>Reason: ${payload?.resolution ?? current.errorDetail ?? "Server requested user review."}</p></div>
       ${payload?.type === "INSUFFICIENT_STOCK" ? `<div class="list-row"><p>Current stock: ${currentStock} · attempted quantity: ${attempted}</p></div>` : ""}
       ${suggestions.length ? `<div class="list-row"><p>Suggested times: ${suggestions.join(", ")}</p></div>` : ""}
+      <div class="list-row"><p>Action guide: retry with latest data, defer for later, or accept server state.</p></div>
     </div>
     <div class="action-stack">
       ${suggestions.map((slot) => `<button class="action-button" data-conflict-action="reschedule" data-conflict-id="${current.id}" data-suggested-start="${slot}">Reschedule to ${slot}</button>`).join("")}
-      ${payload?.type === "APPOINTMENT_OVERLAP" ? `<button class="ghost-button action-button" data-conflict-action="dismiss" data-conflict-id="${current.id}">Keep for later</button>` : ""}
-      ${payload?.type !== "APPOINTMENT_OVERLAP" ? `<button class="ghost-button action-button" data-conflict-action="dismiss" data-conflict-id="${current.id}">Mark reviewed</button>` : ""}
+      <button class="ghost-button action-button" data-conflict-action="retry" data-conflict-id="${current.id}">Retry with latest data</button>
+      <button class="ghost-button action-button" data-conflict-action="defer" data-conflict-id="${current.id}">Defer</button>
+      <button class="ghost-button action-button" data-conflict-action="accept-server" data-conflict-id="${current.id}">Accept server</button>
     </div>`;
 }
 
@@ -668,10 +681,21 @@ async function handleQuickSaleSubmit(event) {
 }
 
 async function resolveConflictAction(action, conflictId, suggestedStart = null) {
+  let mappedAction = "DEFER";
+  if (action === "reschedule") {
+    mappedAction = "RESCHEDULE";
+  } else if (action === "retry") {
+    mappedAction = "RETRY";
+  } else if (action === "accept-server") {
+    mappedAction = "ACCEPT_SERVER";
+  } else if (action === "defer") {
+    mappedAction = "DEFER";
+  }
+
   const response = await fetch(`/api/local/conflicts/${conflictId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: action === "reschedule" ? "RESCHEDULE" : "DISMISS", suggestedStart })
+    body: JSON.stringify({ action: mappedAction, suggestedStart })
   });
 
   if (!response.ok) {
@@ -679,7 +703,15 @@ async function resolveConflictAction(action, conflictId, suggestedStart = null) 
     return;
   }
 
-  setToast(action === "reschedule" ? "Appointment rescheduled locally • syncing…" : "Conflict marked reviewed");
+  if (action === "reschedule") {
+    setToast("Appointment rescheduled locally - syncing...");
+  } else if (action === "retry") {
+    setToast("Conflict moved to retry queue");
+  } else if (action === "accept-server") {
+    setToast("Conflict resolved with server state");
+  } else {
+    setToast("Conflict deferred");
+  }
   await hydrateFromLocalDatabase();
   if (action === "reschedule") {
     setSection("calendar");
@@ -689,7 +721,13 @@ async function resolveConflictAction(action, conflictId, suggestedStart = null) 
 async function runManualSync() {
   const response = await fetch("/api/local/sync/run", { method: "POST" });
   if (response.ok) {
-    setToast("Sync completed");
+    const payload = await response.json();
+    if (payload.status === "success") {
+      setToast("Sync completed");
+    } else {
+      const nextRetry = payload.nextRetryAt ? new Date(payload.nextRetryAt).toLocaleTimeString() : "scheduled retry";
+      setToast(`Sync failed - ${payload.error ?? "retrying"} (${nextRetry})`);
+    }
     await hydrateFromLocalDatabase();
   }
 }

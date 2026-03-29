@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     redis_key_prefix: str = "pharmasync"
     security_alert_webhook_url: str | None = None
     security_alert_timeout_seconds: int = 5
+    sync_audit_hmac_secret: str | None = None
+    appointment_timezone: str = "Africa/Juba"
     log_level: str = "INFO"
     default_admin_email: str = "admin@pharmasync.local"
     default_admin_password: str = _resolve_admin_password()

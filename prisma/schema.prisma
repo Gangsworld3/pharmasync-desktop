@@ -134,6 +134,7 @@ model DeviceState {
 model LocalOperation {
   id                  String      @id @default(cuid())
   operationId         String      @unique
+  idempotencyKey      String?     @unique
   entityType          String
   entityId            String
   operation           String
@@ -144,6 +145,9 @@ model LocalOperation {
   errorDetail         String?
   attempts            Int         @default(0)
   lastAttemptAt       DateTime?
+  nextAttemptAt       DateTime?
+  backoffMs           Int         @default(0)
+  deadLetteredAt      DateTime?
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 }

@@ -1,5 +1,5 @@
 import { prisma } from "./client.js";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { getDatabasePath } from "../services/desktop-runtime.js";
 
@@ -18,6 +18,31 @@ function normalizeSqliteDate(value) {
   return new Date(value);
 }
 
+function buildClientPayloadWithCrdt({
+  client,
+  changedFields = []
+}) {
+  const payload = {
+    id: client.id,
+    client_code: client.clientCode,
+    full_name: client.fullName,
+    phone: client.phone,
+    email: client.email,
+    preferred_language: client.preferredLanguage,
+    city: client.city,
+    notes: client.notes
+  };
+
+  const clocks = Object.fromEntries(
+    changedFields.map((field) => [field, client.localRevision])
+  );
+  payload._crdt = {
+    changedFields,
+    fieldClocks: clocks
+  };
+  return payload;
+}
+
 export async function getOfflineSummary() {
   const [clients, invoices, inventory, appointments, messages, queueDepth, conflicts, pendingOperations, deviceState] = await Promise.all([
     prisma.client.count({ where: activeOnly }),
@@ -27,7 +52,7 @@ export async function getOfflineSummary() {
     prisma.message.count({ where: activeOnly }),
     prisma.syncQueue.count({ where: { status: { in: ["PENDING", "RETRY"] } } }),
     prisma.syncQueue.count({ where: { status: "CONFLICT" } }),
-    prisma.localOperation.count({ where: { status: { in: ["PENDING", "RETRY", "CONFLICT"] } } }),
+    prisma.localOperation.count({ where: { status: { in: ["PENDING", "RETRY", "RETRY_SCHEDULED", "IN_PROGRESS", "CONFLICT"] } } }),
     prisma.deviceState.findFirst({ orderBy: { updatedAt: "desc" } })
   ]);
 
@@ -77,16 +102,10 @@ export async function createLocalClient(payload) {
       entityId: client.id,
       operation: "CREATE",
       localRevision: 1,
-      payload: {
-        id: client.id,
-        client_code: client.clientCode,
-        full_name: client.fullName,
-        phone: client.phone,
-        email: client.email,
-        preferred_language: client.preferredLanguage,
-        city: client.city,
-        notes: client.notes
-      }
+      payload: buildClientPayloadWithCrdt({
+        client,
+        changedFields: ["client_code", "full_name", "phone", "email", "preferred_language", "city", "notes"]
+      })
     });
 
     return client;
@@ -118,22 +137,29 @@ export async function updateLocalClient(id, payload) {
       }
     });
 
+    const fieldMap = [
+      ["client_code", payload.clientCode ?? payload.client_code, existing.clientCode],
+      ["full_name", payload.fullName ?? payload.full_name, existing.fullName],
+      ["phone", payload.phone, existing.phone],
+      ["email", payload.email, existing.email],
+      ["preferred_language", payload.preferredLanguage ?? payload.preferred_language, existing.preferredLanguage],
+      ["city", payload.city, existing.city],
+      ["notes", payload.notes, existing.notes]
+    ];
+    const changedFields = fieldMap
+      .filter(([, incoming, previous]) => incoming !== undefined && incoming !== previous)
+      .map(([field]) => field);
+
     await appendLocalOperation(tx, {
       operationId: payload.operationId ?? `local-op-${randomUUID()}`,
       entityType: "Client",
       entityId: client.id,
       operation: "UPDATE",
       localRevision: client.localRevision,
-      payload: {
-        id: client.id,
-        client_code: client.clientCode,
-        full_name: client.fullName,
-        phone: client.phone,
-        email: client.email,
-        preferred_language: client.preferredLanguage,
-        city: client.city,
-        notes: client.notes
-      }
+      payload: buildClientPayloadWithCrdt({
+        client,
+        changedFields: changedFields.length ? changedFields : ["notes"]
+      })
     });
 
     return client;
@@ -248,7 +274,7 @@ export function getDeviceState() {
   return prisma.deviceState.findFirst({ orderBy: { updatedAt: "desc" } });
 }
 
-export function listLocalOperations(statuses = ["PENDING", "RETRY", "CONFLICT"]) {
+export function listLocalOperations(statuses = ["PENDING", "RETRY", "RETRY_SCHEDULED", "IN_PROGRESS", "CONFLICT"]) {
   return prisma.localOperation.findMany({
     where: { status: { in: statuses } },
     orderBy: { createdAt: "asc" }
@@ -285,10 +311,15 @@ export function updateDeviceState(data) {
 export function appendLocalOperation(entryOrTx, maybeEntry) {
   const tx = maybeEntry ? entryOrTx : prisma;
   const entry = maybeEntry ?? entryOrTx;
+  const idempotencyKey = entry.idempotencyKey
+    ?? createHash("sha256")
+      .update(`${entry.operationId}|${entry.entityType}|${entry.entityId}|${entry.operation}`)
+      .digest("hex");
 
   return tx.localOperation.create({
     data: {
       operationId: entry.operationId,
+      idempotencyKey,
       entityType: entry.entityType,
       entityId: entry.entityId,
       operation: entry.operation,
@@ -296,7 +327,10 @@ export function appendLocalOperation(entryOrTx, maybeEntry) {
       localRevision: entry.localRevision,
       status: entry.status ?? "PENDING",
       conflictPayloadJson: entry.conflictPayloadJson ? JSON.stringify(entry.conflictPayloadJson) : null,
-      errorDetail: entry.errorDetail ?? null
+      errorDetail: entry.errorDetail ?? null,
+      backoffMs: entry.backoffMs ?? 0,
+      nextAttemptAt: entry.nextAttemptAt ?? null,
+      deadLetteredAt: entry.deadLetteredAt ?? null
     }
   });
 }
@@ -318,9 +352,23 @@ export async function getLocalOperationByOperationId(operationId) {
 
 export async function getPendingLocalOperations() {
   return prisma.localOperation.findMany({
-    where: { status: { in: ["PENDING", "RETRY"] } },
+    where: { status: { in: ["PENDING", "RETRY_SCHEDULED", "IN_PROGRESS", "RETRY"] } },
     orderBy: { createdAt: "asc" }
   });
+}
+
+export async function recoverInProgressLocalOperations(now = new Date()) {
+  const updated = await prisma.localOperation.updateMany({
+    where: { status: "IN_PROGRESS" },
+    data: {
+      status: "RETRY_SCHEDULED",
+      nextAttemptAt: now,
+      errorDetail: "Recovered from interrupted sync cycle",
+      updatedAt: now
+    }
+  });
+
+  return updated.count;
 }
 
 export async function getConflictLocalOperations() {

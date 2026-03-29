@@ -33,6 +33,7 @@ prisma/dev.db
 prisma/dev.db-journal
 runtime/*.db
 runtime/*.sqlite*
+runtime/session.json
 desktop/runtime/*.db
 desktop/runtime/*.sqlite*
 
