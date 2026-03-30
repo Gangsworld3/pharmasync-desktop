@@ -73,7 +73,7 @@ function buildReceiptHtml(payload = {}) {
     <head>
       <meta charset="UTF-8" />
       <style>
-        body { font-family: Cairo, "Segoe UI", sans-serif; width: 76mm; margin: 0 auto; padding: 8px; color: #111; }
+        body { font-family: Tahoma, Arial, sans-serif; width: 76mm; margin: 0 auto; padding: 8px; color: #111; }
         h1 { font-size: 16px; margin: 0 0 8px; text-align: center; }
         .meta { font-size: 12px; margin-bottom: 8px; }
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
