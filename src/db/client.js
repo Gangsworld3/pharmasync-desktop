@@ -1,6 +1,8 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "@prisma/client";
+import prismaPkg from "@prisma/client";
 import { getDatabaseUrl } from "../services/desktop-runtime.js";
+
+const { PrismaClient } = prismaPkg;
 
 const globalForPrisma = globalThis;
 
