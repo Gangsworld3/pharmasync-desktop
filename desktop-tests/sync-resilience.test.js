@@ -12,6 +12,7 @@ import { mapConflict } from "../src/services/sync-conflict-adapter.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";
 import { computeNextRetry, getDeferredState, shouldRetry } from "../src/services/sync-retry-scheduler.js";
 import { transition } from "../src/services/sync-state-machine.js";
+import { evaluatePushResult } from "../src/domain/sync/sync-decision-engine.js";
 
 const serial = { concurrency: false };
 
@@ -274,4 +275,59 @@ test("extracted sync modules remain pure (no fetch/db side effects)", serial, as
       assert.equal(pattern.test(source), false, `${relPath} violates purity rule: ${pattern}`);
     }
   }
+});
+
+test("domain decision engine maps push outcomes deterministically", serial, async () => {
+  const now = new Date("2026-03-30T00:00:00.000Z");
+  const baseOperation = {
+    id: "op-1",
+    operationId: "op-1",
+    entityId: "inv-1",
+    localRevision: 3,
+    attempts: 1,
+    backoffMs: 2500,
+    payloadJson: JSON.stringify({ quantity_on_hand: 5 })
+  };
+
+  const applied = evaluatePushResult({
+    rawOperation: baseOperation,
+    result: { status: "APPLIED" },
+    conflicts: [],
+    runtimeConfig: { maxOperationAttempts: 8, retryBaseMs: 2500, retryMaxMs: 300000 },
+    defaultMaxOperationAttempts: 8,
+    sanitizePositiveNumber: (value, fallback) => (Number.isFinite(value) && value > 0 ? value : fallback),
+    mapConflict,
+    now
+  });
+  assert.equal(applied.transitionEvent, "APPLIED");
+
+  const conflict = evaluatePushResult({
+    rawOperation: baseOperation,
+    result: { status: "CONFLICT" },
+    conflicts: [{
+      entityId: "inv-1",
+      local: { operationId: "op-1", data: { quantity_on_hand: 5 } },
+      server: { quantity_on_hand: 2 }
+    }],
+    runtimeConfig: { maxOperationAttempts: 8, retryBaseMs: 2500, retryMaxMs: 300000 },
+    defaultMaxOperationAttempts: 8,
+    sanitizePositiveNumber: (value, fallback) => (Number.isFinite(value) && value > 0 ? value : fallback),
+    mapConflict,
+    now
+  });
+  assert.equal(conflict.transitionEvent, "CONFLICT");
+  assert.deepEqual(conflict.transitionContext.conflictPayload.fieldDiff?.quantity_on_hand, [5, 2]);
+
+  const retry = evaluatePushResult({
+    rawOperation: baseOperation,
+    result: { status: "REJECTED", error: "Remote rejection" },
+    conflicts: [],
+    runtimeConfig: { maxOperationAttempts: 8, retryBaseMs: 2500, retryMaxMs: 300000 },
+    defaultMaxOperationAttempts: 8,
+    sanitizePositiveNumber: (value, fallback) => (Number.isFinite(value) && value > 0 ? value : fallback),
+    mapConflict,
+    now
+  });
+  assert.equal(retry.transitionEvent, "FAIL");
+  assert.equal(retry.transitionContext.reason, "Remote rejection");
 });

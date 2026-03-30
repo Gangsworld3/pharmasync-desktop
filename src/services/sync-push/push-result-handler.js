@@ -1,3 +1,5 @@
+import { evaluatePushResult } from "../../domain/sync/sync-decision-engine.js";
+
 export async function handlePushBatchResult({
   batch,
   response,
@@ -10,12 +12,17 @@ export async function handlePushBatchResult({
 }) {
   if (!response.ok) {
     for (const operation of batch) {
-      await repo.applyTransition(operation, "FAIL", {
-        reason: `Push failed (${response.status})`,
-        config: runtimeConfig,
-        maxAttempts: helpers.sanitizePositiveNumber(runtimeConfig.maxOperationAttempts, policy.defaultMaxOperationAttempts),
+      const evaluation = evaluatePushResult({
+        rawOperation: operation,
+        result: { status: "RETRY", error: `Push failed (${response.status})` },
+        conflicts: [],
+        runtimeConfig,
+        defaultMaxOperationAttempts: policy.defaultMaxOperationAttempts,
+        sanitizePositiveNumber: helpers.sanitizePositiveNumber,
+        mapConflict: helpers.mapConflict,
         now: clock.now()
       });
+      await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
     }
     throw new Error(`Push failed (${response.status}).`);
   }
@@ -26,37 +33,17 @@ export async function handlePushBatchResult({
 
   for (const operation of batch) {
     const result = results.find((entry) => entry.operationId === operation.operationId);
-    if (!result) {
-      await repo.applyTransition(operation, "FAIL", {
-        reason: "Push result missing for operation; scheduled retry.",
-        config: runtimeConfig,
-        maxAttempts: helpers.sanitizePositiveNumber(runtimeConfig.maxOperationAttempts, policy.defaultMaxOperationAttempts),
-        now: clock.now()
-      });
-      continue;
-    }
-
-    if (result.status === "APPLIED" || result.status === "IDEMPOTENT_REPLAY") {
-      await repo.applyTransition(operation, result.status, { now: clock.now() });
-      continue;
-    }
-
-    if (result.status === "CONFLICT") {
-      const conflict = conflicts.find((entry) => entry.entityId === operation.entityId && entry.local.operationId === operation.operationId);
-      const enrichedConflict = helpers.mapConflict(conflict, operation);
-      await repo.applyTransition(operation, "CONFLICT", {
-        now: clock.now(),
-        conflictPayload: enrichedConflict ?? { type: "CONFLICT", resolution: "Manual resolution required" }
-      });
-      continue;
-    }
-
-    await repo.applyTransition(operation, "FAIL", {
-      reason: result.error ?? "Remote rejection",
-      config: runtimeConfig,
-      maxAttempts: helpers.sanitizePositiveNumber(runtimeConfig.maxOperationAttempts, policy.defaultMaxOperationAttempts),
+    const evaluation = evaluatePushResult({
+      rawOperation: operation,
+      result,
+      conflicts,
+      runtimeConfig,
+      defaultMaxOperationAttempts: policy.defaultMaxOperationAttempts,
+      sanitizePositiveNumber: helpers.sanitizePositiveNumber,
+      mapConflict: helpers.mapConflict,
       now: clock.now()
     });
+    await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
   }
 
   for (const change of serverChanges) {

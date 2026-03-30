@@ -1,6 +1,7 @@
 import { buildPushPlan } from "./push-batcher.js";
 import { executePushBatch } from "./push-executor.js";
 import { handlePushBatchResult } from "./push-result-handler.js";
+import { evaluatePushTransportFailure } from "../../domain/sync/sync-decision-engine.js";
 
 export async function runPushOrchestrator({ repo, api, clock, config, policy, helpers }) {
   const deviceState = await repo.ensureDeviceState();
@@ -52,12 +53,15 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
       body = result.body;
     } catch (error) {
       for (const operation of batch) {
-        await repo.applyTransition(operation, "FAIL", {
+        const evaluation = evaluatePushTransportFailure({
+          rawOperation: operation,
           reason: error.message || "Push request failed",
-          config: runtimeConfig,
-          maxAttempts: helpers.sanitizePositiveNumber(runtimeConfig.maxOperationAttempts, policy.defaultMaxOperationAttempts),
+          runtimeConfig,
+          defaultMaxOperationAttempts: policy.defaultMaxOperationAttempts,
+          sanitizePositiveNumber: helpers.sanitizePositiveNumber,
           now: clock.now()
         });
+        await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
       }
       throw error;
     }
