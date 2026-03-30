@@ -11,7 +11,7 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.db.models import SyncEvent
-from app.db.repositories import list_sync_event_audit_since, list_sync_events_since
+from app.db.repos import list_sync_event_audit_since, list_sync_events_since
 
 
 def _hash_hex(value: str) -> str:

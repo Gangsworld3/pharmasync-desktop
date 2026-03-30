@@ -10,7 +10,7 @@ from app.api.responses import success_response
 from app.core.security import decode_access_token
 from app.db.database import Session, engine
 from app.db.models import User
-from app.db.repositories import get_active_by_id
+from app.db.repos import get_active_by_id
 from app.services.sync_audit_service import export_sync_audit_snapshot, replay_sync_audit, sign_sync_audit_report
 from app.services.sync_realtime_service import sync_realtime_hub
 from app.services.sync_service import handle_sync_pull, handle_sync_push

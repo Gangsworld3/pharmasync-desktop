@@ -6,14 +6,7 @@ from pydantic import BaseModel, Field
 from app.api.deps import SessionDep, get_current_user, require_role
 from app.api.responses import success_response
 from app.db.models import User
-from app.db.repositories import (
-    append_audit_log,
-    assign_user_tenant,
-    create_tenant,
-    get_tenant,
-    list_tenants,
-    set_tenant_active,
-)
+from app.db.repos import append_audit_log, assign_user_tenant, create_tenant, get_tenant, list_tenants, set_tenant_active
 
 
 router = APIRouter(prefix="/tenants", tags=["tenants"], dependencies=[Depends(get_current_user)])
@@ -132,4 +125,3 @@ def activate_tenant_route(
     session.commit()
     session.refresh(tenant)
     return success_response(tenant)
-

@@ -6,7 +6,7 @@ from typing import Any
 from sqlmodel import Session
 
 from app.db.models import Appointment, Client, InventoryItem, Invoice, MessageEvent
-from app.db.repositories import (
+from app.db.repos import (
     RESOURCE_MODELS,
     append_audit_log,
     append_sync_event,

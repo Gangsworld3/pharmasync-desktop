@@ -5,7 +5,7 @@ import json
 from sqlmodel import Session
 
 from app.db.models import User
-from app.db.repositories import advance_device_cursor, ensure_monotonic_device_cursor, list_sync_events_since
+from app.db.repos import advance_device_cursor, ensure_monotonic_device_cursor, list_sync_events_since
 
 
 def handle_sync_pull(

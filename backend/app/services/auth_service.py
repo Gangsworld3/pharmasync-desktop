@@ -16,7 +16,7 @@ from app.core.security import (
 )
 from app.core.security_alerts import emit_security_alert
 from app.db.models import User
-from app.db.repositories import (
+from app.db.repos import (
     append_audit_log,
     create_refresh_token_record,
     get_active_by_id,

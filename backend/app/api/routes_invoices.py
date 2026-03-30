@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.deps import SessionDep, get_current_user, require_role
 from app.api.responses import success_response
 from app.db.models import Invoice, User
-from app.db.repositories import create_idempotency_key, get_idempotency_key
+from app.db.repos import create_idempotency_key, get_idempotency_key
 from app.services.crud_service import delete_entity, list_entities
 from app.services.invoice_service import InvoiceItemInput, create_invoice, get_invoice_detail
 

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import SessionDep, get_current_user, require_role
 from app.db.models import User
 from app.api.responses import success_response
-from app.db.repositories import list_conflicts, resolve_conflict
+from app.db.repos import list_conflicts, resolve_conflict
 
 
 router = APIRouter(prefix="/conflicts", tags=["conflicts"], dependencies=[Depends(get_current_user)])

@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.db.models import Appointment
-from app.db.repositories import (
+from app.db.repos import (
     append_audit_log,
     append_sync_event,
     apply_server_revision,

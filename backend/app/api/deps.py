@@ -9,7 +9,7 @@ from sqlmodel import Session
 from app.core.security import decode_access_token
 from app.db.database import get_session
 from app.db.models import User
-from app.db.repositories import get_active_by_id
+from app.db.repos import get_active_by_id
 
 
 SessionDep = Annotated[Session, Depends(get_session)]

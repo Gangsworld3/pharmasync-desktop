@@ -7,7 +7,7 @@ from decimal import Decimal
 from sqlmodel import Session
 
 from app.db.models import InventoryItem, Invoice, InvoiceLineItem
-from app.db.repositories import (
+from app.db.repos import (
     append_audit_log,
     append_sync_event,
     apply_server_revision,

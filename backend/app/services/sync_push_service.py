@@ -12,7 +12,7 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.db.models import Client, Invoice, MessageEvent, User
-from app.db.repositories import (
+from app.db.repos import (
     SYNC_ENTITY_MODELS,
     advance_device_cursor,
     append_sync_event,
