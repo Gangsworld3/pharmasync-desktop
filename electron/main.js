@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 let mainWindow = null;
 const uiMode = process.env.PHARMASYNC_UI_MODE === "react" ? "react" : "legacy";
+const reactDevUrl = process.env.PHARMASYNC_REACT_DEV_URL || "http://127.0.0.1:5173";
 const localApiBase = "http://127.0.0.1:4173";
 
 const routeMap = Object.freeze({
@@ -68,8 +69,17 @@ async function createWindow() {
     }
   });
 
-  const entryPath = uiMode === "react" ? "/react-shell.html" : "/";
-  await mainWindow.loadURL(`http://127.0.0.1:4173${entryPath}`);
+  if (uiMode === "react") {
+    try {
+      await mainWindow.loadURL(reactDevUrl);
+      return;
+    } catch {
+      await mainWindow.loadURL(`${localApiBase}/react-shell.html`);
+      return;
+    }
+  }
+
+  await mainWindow.loadURL(`${localApiBase}/`);
 }
 
 app.whenReady().then(async () => {
