@@ -1,7 +1,7 @@
 import { buildPushPlan } from "./push-batcher.js";
 import { executePushBatch } from "./push-executor.js";
-import { handlePushBatchResult } from "./push-result-handler.js";
-import { evaluatePushTransportFailure } from "../../domain/sync/sync-decision-engine.js";
+import { parsePushBatchResult } from "./push-result-handler.js";
+import { evaluateSync, evaluateSyncTransportFailure } from "../../domain/sync/index.js";
 
 export async function runPushOrchestrator({ repo, api, clock, config, policy, helpers }) {
   const deviceState = await repo.ensureDeviceState();
@@ -53,7 +53,7 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
       body = result.body;
     } catch (error) {
       for (const operation of batch) {
-        const evaluation = evaluatePushTransportFailure({
+        const evaluation = evaluateSyncTransportFailure({
           rawOperation: operation,
           reason: error.message || "Push request failed",
           runtimeConfig,
@@ -66,16 +66,43 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
       throw error;
     }
 
-    const handled = await handlePushBatchResult({
-      batch,
-      response,
-      body,
-      repo,
-      helpers,
-      runtimeConfig,
-      policy,
-      clock
-    });
+    const handled = parsePushBatchResult({ response, body, helpers });
+
+    if (!handled.ok) {
+      for (const operation of batch) {
+        const evaluation = evaluateSync({
+          rawOperation: operation,
+          result: { status: "RETRY", error: `Push failed (${handled.status})` },
+          conflicts: [],
+          runtimeConfig,
+          defaultMaxOperationAttempts: policy.defaultMaxOperationAttempts,
+          sanitizePositiveNumber: helpers.sanitizePositiveNumber,
+          mapConflict: helpers.mapConflict,
+          now: clock.now()
+        });
+        await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
+      }
+      throw new Error(`Push failed (${handled.status}).`);
+    }
+
+    for (const operation of batch) {
+      const result = handled.results.find((entry) => entry.operationId === operation.operationId);
+      const evaluation = evaluateSync({
+        rawOperation: operation,
+        result,
+        conflicts: handled.conflicts,
+        runtimeConfig,
+        defaultMaxOperationAttempts: policy.defaultMaxOperationAttempts,
+        sanitizePositiveNumber: helpers.sanitizePositiveNumber,
+        mapConflict: helpers.mapConflict,
+        now: clock.now()
+      });
+      await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
+    }
+
+    for (const change of handled.serverChanges) {
+      await repo.applyServerChange(change);
+    }
 
     aggregatedResults.push(...handled.results);
     aggregatedServerChanges.push(...handled.serverChanges);

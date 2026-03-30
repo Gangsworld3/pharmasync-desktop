@@ -31,9 +31,7 @@ import { pushPendingChanges as pushPendingChangesPipeline } from "./sync-push-se
 import { pullServerChanges as pullServerChangesPipeline } from "./sync-pull-service.js";
 import { runSyncCycle as runSyncCyclePipeline } from "./sync-cycle-runner.js";
 import { startLoop, stopLoop } from "./sync-loop.js";
-import { createOperationRepoPort } from "./ports/operation-repo.port.js";
-import { createApiClientPort } from "./ports/api-client.port.js";
-import { createClockPort } from "./ports/clock.port.js";
+import { createApiClientPort, createClockPort, createOperationRepoPort } from "./ports/index.js";
 
 let syncTimer = null;
 let syncInFlight = false;
