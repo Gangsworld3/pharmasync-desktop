@@ -1,11 +1,17 @@
-import ExpiryBadge from "../inventory/ExpiryBadge.jsx";
 import Table from "../../components/shared/Table.jsx";
+
+function formatExpiry(value) {
+  if (!value) return "n/a";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString();
+}
 
 const columns = [
   { key: "name", label: "Medicine" },
   { key: "qty", label: "Qty" },
   { key: "unitPriceMinor", label: "Unit", render: (row) => `$${(row.unitPriceMinor / 100).toFixed(2)}` },
-  { key: "expiry", label: "Expiry", render: (row) => <ExpiryBadge date={row.expiry} /> }
+  { key: "expiry", label: "Expiry", render: (row) => formatExpiry(row.expiry) }
 ];
 
 export default function CartTable({ items, onRemove }) {

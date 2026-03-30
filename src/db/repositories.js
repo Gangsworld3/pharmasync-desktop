@@ -642,15 +642,43 @@ export async function appendMessageFromServer(change) {
 }
 
 export async function createInvoiceWithDependencies(tx, payload) {
-  const inventoryItem = await tx.inventoryItem.findFirst({
-    where: { sku: payload.inventorySku, deletedAt: null }
-  });
+  const now = Date.now();
+  const quantity = Number(payload.quantity ?? 0);
 
-  if (!inventoryItem) {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error("Quantity must be greater than zero.");
+  }
+
+  const candidates = payload.inventoryBatchId
+    ? await tx.inventoryItem.findMany({
+      where: { id: payload.inventoryBatchId, deletedAt: null }
+    })
+    : await tx.inventoryItem.findMany({
+      where: { sku: payload.inventorySku, deletedAt: null }
+    });
+
+  if (candidates.length === 0) {
     throw new Error(`Inventory item ${payload.inventorySku} not found.`);
   }
 
-  if (inventoryItem.quantityOnHand < payload.quantity) {
+  const inventoryItem = candidates
+    .filter((item) => Number(item.quantityOnHand ?? 0) >= quantity)
+    .filter((item) => {
+      if (!item.expiresOn) return true;
+      const expiresAt = new Date(item.expiresOn).getTime();
+      return Number.isFinite(expiresAt) && expiresAt > now;
+    })
+    .sort((left, right) => {
+      const leftExpiry = left.expiresOn ? new Date(left.expiresOn).getTime() : Number.POSITIVE_INFINITY;
+      const rightExpiry = right.expiresOn ? new Date(right.expiresOn).getTime() : Number.POSITIVE_INFINITY;
+      return leftExpiry - rightExpiry;
+    })[0];
+
+  if (!inventoryItem) {
+    const hasExpired = candidates.some((item) => item.expiresOn && new Date(item.expiresOn).getTime() <= now);
+    if (hasExpired) {
+      throw new Error(`Cannot sell expired batch for ${payload.inventorySku}.`);
+    }
     throw new Error(`Insufficient stock for ${payload.inventorySku}.`);
   }
 
@@ -673,7 +701,7 @@ export async function createInvoiceWithDependencies(tx, payload) {
   const updatedInventory = await tx.inventoryItem.update({
     where: { id: inventoryItem.id },
     data: {
-      quantityOnHand: { decrement: payload.quantity },
+      quantityOnHand: { decrement: quantity },
       dirty: true,
       syncStatus: "PENDING",
       localRevision: { increment: 1 }

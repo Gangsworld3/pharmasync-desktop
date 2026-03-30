@@ -49,6 +49,7 @@ export async function createInvoiceTransaction(payload, actor = "system") {
       detailsJson: {
         invoiceNumber: result.invoice.invoiceNumber,
         inventorySku: payload.inventorySku,
+        inventoryBatchId: result.updatedInventory.id,
         quantity: payload.quantity
       }
     });
@@ -65,7 +66,7 @@ export async function createInvoiceTransaction(payload, actor = "system") {
         payment_method: result.invoice.paymentMethod,
         status: result.invoice.status,
         issued_at: result.invoice.issuedAt,
-        items: [{ sku: payload.inventorySku, qty: payload.quantity }]
+        items: [{ sku: payload.inventorySku, batch_id: result.updatedInventory.id, qty: payload.quantity }]
       },
       localRevision: result.invoice.localRevision
     });
