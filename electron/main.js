@@ -13,6 +13,9 @@ const routeMap = Object.freeze({
   "summary:get": { method: "GET", path: "/api/local/summary" },
   "clients:list": { method: "GET", path: "/api/local/clients" },
   "inventory:list": { method: "GET", path: "/api/local/inventory" },
+  "inventory:create": { method: "POST", path: "/api/local/inventory" },
+  "inventory:update": { method: "PATCH", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}`, unwrapPayload: "payload" },
+  "inventory:adjust": { method: "POST", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}/adjust`, stripFields: ["batchId"] },
   "appointments:list": { method: "GET", path: "/api/local/appointments" },
   "invoices:create": { method: "POST", path: "/api/local/invoices" },
   "appointments:create": { method: "POST", path: "/api/local/appointments" }
@@ -24,10 +27,16 @@ async function invokeLocalApi(channel, payload = null) {
     throw new Error(`Unsupported IPC channel: ${channel}`);
   }
 
-  const response = await fetch(`${localApiBase}${route.path}`, {
+  const targetPath = route.dynamicPath ? route.dynamicPath(payload ?? {}) : route.path;
+  const bodyPayload = route.unwrapPayload && payload ? payload[route.unwrapPayload] : payload;
+  const finalBody = route.stripFields && bodyPayload
+    ? Object.fromEntries(Object.entries(bodyPayload).filter(([key]) => !route.stripFields.includes(key)))
+    : bodyPayload;
+
+  const response = await fetch(`${localApiBase}${targetPath}`, {
     method: route.method,
-    headers: payload ? { "Content-Type": "application/json" } : undefined,
-    body: payload ? JSON.stringify(payload) : undefined
+    headers: finalBody ? { "Content-Type": "application/json" } : undefined,
+    body: finalBody ? JSON.stringify(finalBody) : undefined
   });
 
   const text = await response.text();
@@ -41,10 +50,81 @@ async function invokeLocalApi(channel, payload = null) {
   return data;
 }
 
+function buildReceiptHtml(payload = {}) {
+  const language = payload.language === "ar" ? "ar" : "en";
+  const dir = language === "ar" ? "rtl" : "ltr";
+  const title = language === "ar" ? "إيصال صيدلية" : "Pharmacy Receipt";
+  const labels = language === "ar"
+    ? { total: "الإجمالي", payment: "طريقة الدفع", invoice: "الفاتورة", date: "التاريخ", qty: "الكمية", price: "السعر" }
+    : { total: "Total", payment: "Payment", invoice: "Invoice", date: "Date", qty: "Qty", price: "Price" };
+
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const totalMinor = Number(payload.totalMinor ?? 0);
+  const rows = items.map((item) => `
+    <tr>
+      <td>${item.name ?? "Item"}</td>
+      <td>${Number(item.qty ?? 0)}</td>
+      <td>${(Number(item.unitPriceMinor ?? 0) / 100).toFixed(2)}</td>
+    </tr>
+  `).join("");
+
+  return `<!doctype html>
+  <html lang="${language}" dir="${dir}">
+    <head>
+      <meta charset="UTF-8" />
+      <style>
+        body { font-family: Cairo, "Segoe UI", sans-serif; width: 76mm; margin: 0 auto; padding: 8px; color: #111; }
+        h1 { font-size: 16px; margin: 0 0 8px; text-align: center; }
+        .meta { font-size: 12px; margin-bottom: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        td, th { border-bottom: 1px dashed #bbb; padding: 4px 0; text-align: ${dir === "rtl" ? "right" : "left"}; }
+        .total { margin-top: 8px; font-size: 14px; font-weight: 700; display: flex; justify-content: space-between; }
+      </style>
+    </head>
+    <body>
+      <h1>${title}</h1>
+      <div class="meta">${labels.invoice}: ${payload.invoiceNumber ?? "-"}</div>
+      <div class="meta">${labels.date}: ${payload.issuedAt ?? new Date().toISOString()}</div>
+      <div class="meta">${labels.payment}: ${payload.paymentMethod ?? "-"}</div>
+      <table>
+        <thead><tr><th>Item</th><th>${labels.qty}</th><th>${labels.price}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="total"><span>${labels.total}</span><span>${(totalMinor / 100).toFixed(2)}</span></div>
+    </body>
+  </html>`;
+}
+
+async function printReceipt(payload) {
+  const printWindow = new BrowserWindow({
+    show: false,
+    webPreferences: { sandbox: true }
+  });
+  const html = buildReceiptHtml(payload);
+  await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const didPrint = await new Promise((resolve, reject) => {
+    printWindow.webContents.print(
+      { silent: false, printBackground: true },
+      (success, errorType) => {
+        if (!success && errorType) {
+          reject(new Error(`Receipt print failed: ${errorType}`));
+          return;
+        }
+        resolve(success);
+      }
+    );
+  });
+
+  printWindow.close();
+  return { printed: Boolean(didPrint) };
+}
+
 function registerIpcHandlers() {
   for (const channel of Object.keys(routeMap)) {
     ipcMain.handle(channel, async (_event, payload) => invokeLocalApi(channel, payload));
   }
+  ipcMain.handle("receipt:print", async (_event, payload) => printReceipt(payload));
 }
 
 async function bootDesktopServer() {

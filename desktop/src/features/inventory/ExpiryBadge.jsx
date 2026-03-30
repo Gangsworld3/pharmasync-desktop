@@ -3,9 +3,12 @@ import { expiryStatus } from "../../domain/expiry.js";
 
 export default function ExpiryBadge({ date }) {
   const status = expiryStatus(date);
+  const label = date ? new Date(date).toLocaleDateString() : "n/a";
+  const marker = status.type === "expired" ? "[EXP]" : status.type === "warning" ? "[WARN]" : "[OK]";
+
   return (
     <span className={`badge ${status.type}`}>
-      {status.type === "expired" ? "🔴" : status.type === "warning" ? "⚠️" : "✅"} {t(status.labelKey)}: {date}
+      {marker} {t(status.labelKey)}: {label}
     </span>
   );
 }

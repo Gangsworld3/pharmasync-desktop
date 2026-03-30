@@ -1,24 +1,74 @@
+import { useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n/i18n.js";
 import ExpiryList from "./ExpiryList.jsx";
-import { expiryStatus } from "../../domain/expiry.js";
 
-const sample = [
-  { id: "b1", name: "Insulin", date: "2025-01-01" },
-  { id: "b2", name: "Amoxicillin", date: "2026-02-01" }
-];
+function daysUntil(value) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const diff = (new Date(value).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+  return Number.isFinite(diff) ? diff : Number.POSITIVE_INFINITY;
+}
+
+function classify(dateValue) {
+  const days = daysUntil(dateValue);
+  if (days < 0) return "EXPIRED";
+  if (days <= 30) return "D30";
+  if (days <= 60) return "D60";
+  if (days <= 90) return "D90";
+  return "SAFE";
+}
 
 export default function ExpiryDashboard() {
-  const statusRows = sample.map((row) => ({ ...row, status: expiryStatus(row.date).type }));
-  const expired = statusRows.filter((row) => row.status === "expired").length;
-  const warning = statusRows.filter((row) => row.status === "warning").length;
+  const [rows, setRows] = useState([]);
+  const [bucket, setBucket] = useState("D30");
+  const [status, setStatus] = useState("Loading expiry data...");
+
+  useEffect(() => {
+    async function load() {
+      if (!window.api) return;
+      const inventory = await window.api.listInventory();
+      setRows(inventory);
+      setStatus(`Loaded ${inventory.length} inventory batches`);
+    }
+    load().catch((error) => setStatus(error.message ?? "Failed to load expiry data."));
+  }, []);
+
+  const counts = useMemo(() => {
+    const buckets = { EXPIRED: 0, D30: 0, D60: 0, D90: 0, SAFE: 0 };
+    for (const row of rows) {
+      buckets[classify(row.expiresOn)] += 1;
+    }
+    return buckets;
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (bucket === "ALL") return rows;
+    return rows.filter((row) => classify(row.expiresOn) === bucket);
+  }, [rows, bucket]);
 
   return (
     <section className="stack">
       <div className="row">
-        <div className="card danger">{t("expired")}: {expired}</div>
-        <div className="card warning">{t("expiringSoon")}: {warning}</div>
+        <div className="card danger">Expired: {counts.EXPIRED}</div>
+        <div className="card warning">30 days: {counts.D30}</div>
+        <div className="card warning">60 days: {counts.D60}</div>
+        <div className="card warning">90 days: {counts.D90}</div>
       </div>
-      <ExpiryList rows={statusRows} />
+      <div className="row">
+        <button type="button" onClick={() => setBucket("EXPIRED")} className={bucket === "EXPIRED" ? "active-action" : ""}>{t("expired")}</button>
+        <button type="button" onClick={() => setBucket("D30")} className={bucket === "D30" ? "active-action" : ""}>30d</button>
+        <button type="button" onClick={() => setBucket("D60")} className={bucket === "D60" ? "active-action" : ""}>60d</button>
+        <button type="button" onClick={() => setBucket("D90")} className={bucket === "D90" ? "active-action" : ""}>90d</button>
+        <button type="button" onClick={() => setBucket("ALL")} className={bucket === "ALL" ? "active-action" : ""}>{t("all")}</button>
+      </div>
+      <div className="card">
+        <strong>Daily Check:</strong> Review {filteredRows.length} batches in "{bucket}" bucket.
+      </div>
+      <ExpiryList rows={filteredRows.map((row) => ({
+        id: row.id,
+        name: `${row.name} (${row.batchNumber ?? row.sku})`,
+        date: row.expiresOn
+      }))} />
+      <div className="card"><strong>Status:</strong> {status}</div>
     </section>
   );
 }

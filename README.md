@@ -49,6 +49,7 @@ Deployment runbooks:
 - day 1 pilot log: `docs/deployment/day-1-validation-log.md`
 - executed clean-machine run (2026-03-29): `docs/deployment/clean-machine-validation-run-2026-03-29.md`
 - executed day 1 rehearsal (2026-03-29): `docs/deployment/day-1-validation-log-2026-03-29.md`
+- Render backend cutover: `docs/deployment/render-backend-cutover.md`
 
 Render deployment manifest:
 
@@ -126,6 +127,9 @@ Local API endpoints:
 - `GET /api/local/clients`
 - `GET /api/local/invoices`
 - `GET /api/local/inventory`
+- `POST /api/local/inventory`
+- `PATCH /api/local/inventory/:batchId`
+- `POST /api/local/inventory/:batchId/adjust`
 - `GET /api/local/appointments`
 - `GET /api/local/messages`
 - `GET /api/local/sync-queue`

@@ -8,7 +8,9 @@ export default function PaymentPanel({
   paymentMethod,
   onSelectPaymentMethod,
   onCompleteSale,
-  isSubmitting
+  isSubmitting,
+  onPrintReceipt,
+  canPrintReceipt
 }) {
   const totalMinor = items.reduce((sum, item) => sum + item.qty * item.unitPriceMinor, 0);
   const total = totalMinor / 100;
@@ -33,6 +35,7 @@ export default function PaymentPanel({
         <button type="button" onClick={onCompleteSale} disabled={isSubmitting || !items.length || !selectedClientId}>
           {isSubmitting ? "Processing..." : t("completeSale")}
         </button>
+        <button type="button" onClick={onPrintReceipt} disabled={!canPrintReceipt}>Print Receipt</button>
       </div>
     </div>
   );

@@ -4,6 +4,8 @@ import { extname, join, normalize } from "node:path";
 import "./src/db/init-sqlite.js";
 import { bootstrapLocalDatabase } from "./src/db/bootstrap.js";
 import {
+  adjustLocalInventoryBatch,
+  createLocalInventoryBatch,
   createLocalClient,
   createLocalAppointment,
   ensureDeviceState,
@@ -17,6 +19,7 @@ import {
   listLocalOperations,
   listMessages,
   listSyncQueue,
+  updateLocalInventoryBatch,
   updateLocalClient
 } from "./src/db/repositories.js";
 import {
@@ -136,10 +139,34 @@ createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === "POST" && requestUrl.pathname === "/api/local/inventory") {
+      const body = await readJsonBody(req);
+      const result = await createLocalInventoryBatch(body);
+      sendJson(res, 201, result);
+      return;
+    }
+
     if (req.method === "PATCH" && requestUrl.pathname.startsWith("/api/local/clients/")) {
       const clientId = requestUrl.pathname.split("/").pop();
       const body = await readJsonBody(req);
       const result = await updateLocalClient(clientId, body);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "PATCH" && requestUrl.pathname.startsWith("/api/local/inventory/")) {
+      const batchId = requestUrl.pathname.split("/").pop();
+      const body = await readJsonBody(req);
+      const result = await updateLocalInventoryBatch(batchId, body);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "POST" && requestUrl.pathname.startsWith("/api/local/inventory/") && requestUrl.pathname.endsWith("/adjust")) {
+      const parts = requestUrl.pathname.split("/");
+      const batchId = parts[parts.length - 2];
+      const body = await readJsonBody(req);
+      const result = await adjustLocalInventoryBatch(batchId, Number(body.delta ?? 0), body.reason ?? "manual-adjustment");
       sendJson(res, 200, result);
       return;
     }

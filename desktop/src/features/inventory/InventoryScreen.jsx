@@ -1,20 +1,111 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AddStockModal from "./AddStockModal.jsx";
 import StockTable from "./StockTable.jsx";
-
-const sampleStock = [
-  { id: "i1", name: "Panadol", stock: 120, batch: "B123", expiry: "2026-10-10" },
-  { id: "i2", name: "Augmentin", stock: 30, batch: "B456", expiry: "2026-02-01" },
-  { id: "i3", name: "Insulin", stock: 8, batch: "B789", expiry: "2025-01-01" }
-];
+import { expiryStatus } from "../../domain/expiry.js";
 
 export default function InventoryScreen() {
+  const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
+  const [editingBatch, setEditingBatch] = useState(null);
+  const [filter, setFilter] = useState("ALL");
+  const [status, setStatus] = useState("Loading inventory...");
+  const [error, setError] = useState("");
+
+  async function loadInventory() {
+    if (!window.api) return;
+    try {
+      const inventory = await window.api.listInventory();
+      setRows(inventory);
+      setStatus(`Loaded ${inventory.length} batches`);
+    } catch (loadError) {
+      setError(loadError.message ?? "Failed to load inventory.");
+    }
+  }
+
+  useEffect(() => {
+    loadInventory();
+  }, []);
+
+  const visibleRows = useMemo(() => {
+    if (filter === "ALL") return rows;
+    if (filter === "LOW_STOCK") return rows.filter((row) => Number(row.quantityOnHand) <= Number(row.reorderLevel));
+    if (filter === "EXPIRED") return rows.filter((row) => expiryStatus(row.expiresOn).type === "expired");
+    if (filter === "NEAR_EXPIRY") return rows.filter((row) => expiryStatus(row.expiresOn).type === "warning");
+    return rows;
+  }, [rows, filter]);
+
+  async function handleSave(payload) {
+    if (!window.api) return;
+    setError("");
+    try {
+      if (editingBatch) {
+        await window.api.updateInventoryBatch(editingBatch.id, payload);
+        setStatus("Batch updated.");
+      } else {
+        await window.api.createInventoryBatch(payload);
+        setStatus("Batch added.");
+      }
+      setOpen(false);
+      setEditingBatch(null);
+      await loadInventory();
+    } catch (saveError) {
+      setError(saveError.message ?? "Failed to save batch.");
+    }
+  }
+
+  async function handleAdjust(row, delta) {
+    if (!window.api) return;
+    setError("");
+    try {
+      await window.api.adjustInventoryBatch(row.id, delta, "inventory-quick-adjust");
+      setStatus(`Adjusted ${row.name} (${delta > 0 ? "+" : ""}${delta}).`);
+      await loadInventory();
+    } catch (adjustError) {
+      setError(adjustError.message ?? "Failed to adjust stock.");
+    }
+  }
+
+  function openCreate() {
+    setEditingBatch(null);
+    setOpen(true);
+    setError("");
+  }
+
+  function openEdit(row) {
+    setEditingBatch(row);
+    setOpen(true);
+    setError("");
+  }
+
   return (
-    <section className="inventory">
-      <button type="button" onClick={() => setOpen(true)}>Add Stock</button>
-      <AddStockModal open={open} onClose={() => setOpen(false)} />
-      <StockTable rows={sampleStock} />
+    <section className="inventory stack">
+      <div className="row between">
+        <h2>Inventory Batches</h2>
+        <div className="row">
+          <button type="button" onClick={openCreate}>Add Batch</button>
+          <button type="button" onClick={() => setFilter("ALL")} className={filter === "ALL" ? "active-action" : ""}>All</button>
+          <button type="button" onClick={() => setFilter("LOW_STOCK")} className={filter === "LOW_STOCK" ? "active-action" : ""}>Low Stock</button>
+          <button type="button" onClick={() => setFilter("NEAR_EXPIRY")} className={filter === "NEAR_EXPIRY" ? "active-action" : ""}>Near Expiry</button>
+          <button type="button" onClick={() => setFilter("EXPIRED")} className={filter === "EXPIRED" ? "active-action" : ""}>Expired</button>
+        </div>
+      </div>
+
+      <StockTable rows={visibleRows} onEdit={openEdit} onAdjust={handleAdjust} />
+      <div className="card">
+        <strong>Status:</strong> {status}
+        {error ? <p className="danger">{error}</p> : null}
+      </div>
+
+      <AddStockModal
+        open={open}
+        editingBatch={editingBatch}
+        onClose={() => {
+          setOpen(false);
+          setEditingBatch(null);
+        }}
+        onSave={handleSave}
+        errorMessage={error}
+      />
     </section>
   );
 }

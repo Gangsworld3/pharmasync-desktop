@@ -3,6 +3,7 @@ import ProductSearch from "./ProductSearch.jsx";
 import CartTable from "./CartTable.jsx";
 import PaymentPanel from "./PaymentPanel.jsx";
 import { isNearExpiry, selectFEFOBatch } from "../../domain/fefo.js";
+import { getLang } from "../../i18n/i18n.js";
 
 function resolveUnitPriceMinor(item) {
   if (Number.isFinite(Number(item.salePriceMinor))) return Number(item.salePriceMinor);
@@ -65,6 +66,7 @@ export default function SalesScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState("Loading inventory...");
   const [error, setError] = useState("");
+  const [lastReceipt, setLastReceipt] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -176,6 +178,12 @@ export default function SalesScreen() {
     setError("");
 
     try {
+      const receiptItems = cart.map((item) => ({
+        name: item.name,
+        qty: item.qty,
+        unitPriceMinor: item.unitPriceMinor
+      }));
+      const invoices = [];
       for (const item of cart) {
         const payload = {
           invoiceNumber: `INV-${Date.now()}-${item.sku}`,
@@ -188,15 +196,34 @@ export default function SalesScreen() {
           totalMinor: item.qty * item.unitPriceMinor,
           paymentMethod
         };
-        await window.api.createInvoice(payload);
+        const created = await window.api.createInvoice(payload);
+        invoices.push(created?.invoice?.invoiceNumber ?? payload.invoiceNumber);
       }
       await window.api.runSync();
       setStatus("Sale created and sync triggered.");
+      setLastReceipt({
+        language: getLang(),
+        invoiceNumber: invoices.join(", "),
+        paymentMethod,
+        issuedAt: new Date().toISOString(),
+        totalMinor: cart.reduce((sum, item) => sum + item.qty * item.unitPriceMinor, 0),
+        items: receiptItems
+      });
       setCart([]);
     } catch (saleError) {
       setError(saleError.message ?? "Failed to complete sale.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function printReceipt() {
+    if (!window.api || !lastReceipt) return;
+    try {
+      await window.api.printReceipt(lastReceipt);
+      setStatus("Receipt sent to printer.");
+    } catch (printError) {
+      setError(printError.message ?? "Failed to print receipt.");
     }
   }
 
@@ -233,6 +260,8 @@ export default function SalesScreen() {
         onSelectPaymentMethod={setPaymentMethod}
         onCompleteSale={completeSale}
         isSubmitting={submitting}
+        onPrintReceipt={printReceipt}
+        canPrintReceipt={Boolean(lastReceipt)}
       />
 
       <div className="card">
