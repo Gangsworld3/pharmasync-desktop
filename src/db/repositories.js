@@ -733,8 +733,12 @@ export async function createInvoiceWithDependencies(tx, payload) {
 
   const updatedInventories = [];
   for (const allocation of allocations) {
-    const updatedInventory = await tx.inventoryItem.update({
-      where: { id: allocation.batchId },
+    const decrementResult = await tx.inventoryItem.updateMany({
+      where: {
+        id: allocation.batchId,
+        quantityOnHand: { gte: allocation.quantity },
+        deletedAt: null
+      },
       data: {
         quantityOnHand: { decrement: allocation.quantity },
         dirty: true,
@@ -742,6 +746,19 @@ export async function createInvoiceWithDependencies(tx, payload) {
         localRevision: { increment: 1 }
       }
     });
+
+    if (decrementResult.count !== 1) {
+      throw new Error(`Insufficient stock for selected batch: ${allocation.batchId}`);
+    }
+
+    const updatedInventory = await tx.inventoryItem.findUnique({
+      where: { id: allocation.batchId }
+    });
+
+    if (!updatedInventory) {
+      throw new Error(`Batch not found after stock update: ${allocation.batchId}`);
+    }
+
     updatedInventories.push(updatedInventory);
   }
 
