@@ -485,15 +485,23 @@ export function appendLocalOperation(entryOrTx, maybeEntry) {
   });
 }
 
-export function updateLocalOperation(id, data) {
-  return prisma.localOperation.update({
-    where: { id },
-    data: {
-      ...data,
-      conflictPayloadJson: data.conflictPayloadJson ? JSON.stringify(data.conflictPayloadJson) : data.conflictPayloadJson,
-      updatedAt: new Date()
+export async function updateLocalOperation(id, data) {
+  try {
+    return await prisma.localOperation.update({
+      where: { id },
+      data: {
+        ...data,
+        conflictPayloadJson: data.conflictPayloadJson ? JSON.stringify(data.conflictPayloadJson) : data.conflictPayloadJson,
+        updatedAt: new Date()
+      }
+    });
+  } catch (error) {
+    // Retry/chaos flows can race with operation cleanup; treat missing rows as no-op.
+    if (error?.code === "P2025") {
+      return null;
     }
-  });
+    throw error;
+  }
 }
 
 export async function getLocalOperationByOperationId(operationId) {
