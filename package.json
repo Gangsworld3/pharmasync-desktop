@@ -24,7 +24,8 @@
     "simulate:sync:high-failure": "node desktop-tests/sync-simulation-runner.js --profile high-failure",
     "simulate:sync:high-conflict": "node desktop-tests/sync-simulation-runner.js --profile high-conflict",
     "simulate:sync:latency": "node desktop-tests/sync-simulation-runner.js --profile latency",
-    "simulate:pharmacy-day": "node desktop-tests/pharmacy-day-simulation.js"
+    "simulate:pharmacy-day": "node desktop-tests/pharmacy-day-simulation.js",
+    "analyze:sync-logs": "node scripts/analyze-sync-logs.js"
   },
   "engines": {
     "node": ">=20"

@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
@@ -99,7 +99,17 @@ export function appendDesktopLog(fileName, message) {
 
 export function appendDesktopJsonLog(fileName, payload) {
   const { logsDir } = ensureRuntimeDirectories();
-  appendFileSync(join(logsDir, fileName), `${JSON.stringify(payload)}\n`);
+  const filePath = join(logsDir, fileName);
+  const maxSizeMb = Number(process.env.PHARMASYNC_LOG_MAX_SIZE_MB ?? 10);
+
+  if (existsSync(filePath)) {
+    const sizeMb = statSync(filePath).size / (1024 * 1024);
+    if (Number.isFinite(maxSizeMb) && maxSizeMb > 0 && sizeMb > maxSizeMb) {
+      renameSync(filePath, `${filePath}.${Date.now()}`);
+    }
+  }
+
+  appendFileSync(filePath, `${JSON.stringify(payload)}\n`);
 }
 
 export function getDatabasePath() {
