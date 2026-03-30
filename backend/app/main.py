@@ -14,6 +14,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 from app.api.errors import error_response, map_error_code
 from app.api.responses import success_response
 from app.api.routes_appointments import router as appointments_router
+from app.api.routes_analytics import router as analytics_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_clients import router as clients_router
 from app.api.routes_conflicts import router as conflicts_router
@@ -201,6 +202,7 @@ def root():
 
 
 app.include_router(auth_router)
+app.include_router(analytics_router)
 app.include_router(clients_router)
 app.include_router(conflicts_router)
 app.include_router(inventory_router)
