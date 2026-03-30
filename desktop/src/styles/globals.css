@@ -153,6 +153,27 @@ body {
   padding: 8px 10px;
 }
 
+.field select,
+select,
+input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: white;
+  cursor: pointer;
+}
+
+.active-action {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
