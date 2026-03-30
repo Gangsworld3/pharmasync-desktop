@@ -2,68 +2,47 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "./ipc-channels.js";
+import {
+  getCurrentRemoteUser,
+  getRemoteDailySales,
+  getRemoteExpiryLoss,
+  getRemoteTopMedicines,
+  getSyncEngineStatus,
+  runSyncCycle
+} from "../src/services/sync-engine.js";
+import { getOfflineSummary } from "../src/db/repositories.js";
+import { listLocalClients } from "../src/services/client-service.js";
+import {
+  adjustInventoryBatch,
+  createInventoryBatch,
+  listInventoryBatches,
+  updateInventoryBatch
+} from "../src/services/inventory-service.js";
+import { listLocalAppointments, createAppointment } from "../src/services/appointment-service.js";
+import { createInvoice } from "../src/services/sales-service.js";
 
 let mainWindow = null;
 const uiMode = process.env.PHARMASYNC_UI_MODE === "react" ? "react" : "legacy";
 const reactDevUrl = process.env.PHARMASYNC_REACT_DEV_URL || "http://127.0.0.1:5173";
 const localApiBase = "http://127.0.0.1:4173";
 
-const routeMap = Object.freeze({
-  [IPC_CHANNELS.SYNC_STATUS]: { method: "GET", path: "/api/local/sync/status" },
-  [IPC_CHANNELS.SYNC_RUN]: { method: "POST", path: "/api/local/sync/run" },
-  [IPC_CHANNELS.AUTH_GET_CURRENT_USER]: { method: "GET", path: "/api/local/auth/me" },
-  [IPC_CHANNELS.SUMMARY_GET]: { method: "GET", path: "/api/local/summary" },
-  [IPC_CHANNELS.ANALYTICS_DAILY_SALES]: {
-    method: "GET",
-    dynamicPath: ({ from, to }) => `/api/local/analytics/daily-sales?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
-  },
-  [IPC_CHANNELS.ANALYTICS_TOP_MEDICINES]: {
-    method: "GET",
-    dynamicPath: ({ from, to, limit }) =>
-      `/api/local/analytics/top-medicines?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${encodeURIComponent(limit ?? 10)}`
-  },
-  [IPC_CHANNELS.ANALYTICS_EXPIRY_LOSS]: {
-    method: "GET",
-    dynamicPath: ({ days }) => `/api/local/analytics/expiry-loss?days=${encodeURIComponent(days ?? 30)}`
-  },
-  [IPC_CHANNELS.CLIENTS_LIST]: { method: "GET", path: "/api/local/clients" },
-  [IPC_CHANNELS.INVENTORY_LIST]: { method: "GET", path: "/api/local/inventory" },
-  [IPC_CHANNELS.INVENTORY_CREATE]: { method: "POST", path: "/api/local/inventory" },
-  [IPC_CHANNELS.INVENTORY_UPDATE]: { method: "PATCH", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}`, unwrapPayload: "payload" },
-  [IPC_CHANNELS.INVENTORY_ADJUST]: { method: "POST", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}/adjust`, stripFields: ["batchId"] },
-  [IPC_CHANNELS.APPOINTMENTS_LIST]: { method: "GET", path: "/api/local/appointments" },
-  [IPC_CHANNELS.INVOICES_CREATE]: { method: "POST", path: "/api/local/invoices" },
-  [IPC_CHANNELS.APPOINTMENTS_CREATE]: { method: "POST", path: "/api/local/appointments" }
+const ipcHandlers = Object.freeze({
+  [IPC_CHANNELS.AUTH_GET_CURRENT_USER]: () => getCurrentRemoteUser(),
+  [IPC_CHANNELS.SYNC_STATUS]: () => getSyncEngineStatus(),
+  [IPC_CHANNELS.SYNC_RUN]: () => runSyncCycle(),
+  [IPC_CHANNELS.SUMMARY_GET]: () => getOfflineSummary(),
+  [IPC_CHANNELS.ANALYTICS_DAILY_SALES]: (payload = {}) => getRemoteDailySales(payload),
+  [IPC_CHANNELS.ANALYTICS_TOP_MEDICINES]: (payload = {}) => getRemoteTopMedicines(payload),
+  [IPC_CHANNELS.ANALYTICS_EXPIRY_LOSS]: (payload = {}) => getRemoteExpiryLoss(payload),
+  [IPC_CHANNELS.CLIENTS_LIST]: () => listLocalClients(),
+  [IPC_CHANNELS.INVENTORY_LIST]: () => listInventoryBatches(),
+  [IPC_CHANNELS.INVENTORY_CREATE]: (payload = {}) => createInventoryBatch(payload),
+  [IPC_CHANNELS.INVENTORY_UPDATE]: (payload = {}) => updateInventoryBatch(payload.batchId, payload.payload ?? {}),
+  [IPC_CHANNELS.INVENTORY_ADJUST]: (payload = {}) => adjustInventoryBatch(payload.batchId, payload.delta, payload.reason),
+  [IPC_CHANNELS.APPOINTMENTS_LIST]: () => listLocalAppointments(),
+  [IPC_CHANNELS.APPOINTMENTS_CREATE]: (payload = {}) => createAppointment(payload),
+  [IPC_CHANNELS.INVOICES_CREATE]: (payload = {}) => createInvoice(payload, "desktop-user")
 });
-
-async function invokeLocalApi(channel, payload = null) {
-  const route = routeMap[channel];
-  if (!route) {
-    throw new Error(`Unsupported IPC channel: ${channel}`);
-  }
-
-  const targetPath = route.dynamicPath ? route.dynamicPath(payload ?? {}) : route.path;
-  const bodyPayload = route.unwrapPayload && payload ? payload[route.unwrapPayload] : payload;
-  const finalBody = route.stripFields && bodyPayload
-    ? Object.fromEntries(Object.entries(bodyPayload).filter(([key]) => !route.stripFields.includes(key)))
-    : bodyPayload;
-
-  const response = await fetch(`${localApiBase}${targetPath}`, {
-    method: route.method,
-    headers: finalBody ? { "Content-Type": "application/json" } : undefined,
-    body: finalBody ? JSON.stringify(finalBody) : undefined
-  });
-
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
-
-  if (!response.ok) {
-    const detail = data?.detail || data?.error || `HTTP ${response.status}`;
-    throw new Error(detail);
-  }
-
-  return data;
-}
 
 function buildReceiptHtml(payload = {}) {
   const language = payload.language === "ar" ? "ar" : "en";
@@ -136,8 +115,8 @@ async function printReceipt(payload) {
 }
 
 function registerIpcHandlers() {
-  for (const channel of Object.keys(routeMap)) {
-    ipcMain.handle(channel, async (_event, payload) => invokeLocalApi(channel, payload));
+  for (const [channel, handler] of Object.entries(ipcHandlers)) {
+    ipcMain.handle(channel, async (_event, payload) => handler(payload));
   }
   ipcMain.handle(IPC_CHANNELS.RECEIPT_PRINT, async (_event, payload) => printReceipt(payload));
 }
@@ -149,8 +128,6 @@ async function bootDesktopServer() {
 }
 
 async function createWindow() {
-  await bootDesktopServer();
-
   mainWindow = new BrowserWindow({
     width: 1480,
     height: 960,
@@ -169,11 +146,12 @@ async function createWindow() {
       await mainWindow.loadURL(reactDevUrl);
       return;
     } catch {
-      await mainWindow.loadURL(`${localApiBase}/react-shell.html`);
+      await mainWindow.loadFile(join(app.getAppPath(), "desktop", "react-shell.html"));
       return;
     }
   }
 
+  await bootDesktopServer();
   await mainWindow.loadURL(`${localApiBase}/`);
 }
 

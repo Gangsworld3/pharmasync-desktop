@@ -1,41 +1,45 @@
 import { createServer } from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
+// External/local HTTP API surface for web/mobile and legacy desktop shell.
+// Electron IPC now calls service layer directly.
 import "./src/db/init-sqlite.js";
 import { bootstrapLocalDatabase } from "./src/db/bootstrap.js";
 import {
-  adjustLocalInventoryBatch,
-  createLocalInventoryBatch,
-  createLocalClient,
-  createLocalAppointment,
   ensureDeviceState,
   getOfflineSummary,
   listConflictOperations,
-  listAppointments,
   listAuditLogs,
-  listClients,
-  listInventory,
-  listInvoices,
   listLocalOperations,
   listMessages,
   listSyncQueue,
-  updateLocalInventoryBatch,
-  updateLocalClient
 } from "./src/db/repositories.js";
 import {
-  createInvoiceTransaction,
   resolveDesktopConflict,
   resolveConflict,
   runSyncRetryCycle
 } from "./src/services/offline-service.js";
 import {
   authenticateDesktopSession,
+  getCurrentRemoteUser,
+  getRemoteDailySales,
+  getRemoteExpiryLoss,
+  getRemoteTopMedicines,
   getSyncEngineStatus,
   logoutDesktopSession,
   recordLocalOperation,
   runSyncCycle,
   startBackgroundSyncLoop
 } from "./src/services/sync-engine.js";
+import { listLocalClients, createClient, updateClient } from "./src/services/client-service.js";
+import {
+  listInventoryBatches,
+  createInventoryBatch,
+  updateInventoryBatch,
+  adjustInventoryBatch
+} from "./src/services/inventory-service.js";
+import { listLocalInvoices, createInvoice } from "./src/services/sales-service.js";
+import { listLocalAppointments, createAppointment } from "./src/services/appointment-service.js";
 import {
   exportLocalDatabase,
   getDesktopSettings,
@@ -60,10 +64,10 @@ const mimeTypes = {
 
 const getRoutes = {
   "/api/local/summary": getOfflineSummary,
-  "/api/local/clients": listClients,
-  "/api/local/invoices": listInvoices,
-  "/api/local/inventory": listInventory,
-  "/api/local/appointments": listAppointments,
+  "/api/local/clients": listLocalClients,
+  "/api/local/invoices": listLocalInvoices,
+  "/api/local/inventory": listInventoryBatches,
+  "/api/local/appointments": listLocalAppointments,
   "/api/local/messages": listMessages,
   "/api/local/sync-queue": listSyncQueue,
   "/api/local/audit-logs": listAuditLogs,
@@ -120,28 +124,28 @@ createServer(async (req, res) => {
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/invoices") {
       const body = await readJsonBody(req);
-      const result = await createInvoiceTransaction(body, "desktop-user");
+      const result = await createInvoice(body, "desktop-user");
       sendJson(res, 201, result);
       return;
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/clients") {
       const body = await readJsonBody(req);
-      const result = await createLocalClient(body);
+      const result = await createClient(body);
       sendJson(res, 201, result);
       return;
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/appointments") {
       const body = await readJsonBody(req);
-      const result = await createLocalAppointment(body);
+      const result = await createAppointment(body);
       sendJson(res, 201, result);
       return;
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/inventory") {
       const body = await readJsonBody(req);
-      const result = await createLocalInventoryBatch(body);
+      const result = await createInventoryBatch(body);
       sendJson(res, 201, result);
       return;
     }
@@ -149,7 +153,7 @@ createServer(async (req, res) => {
     if (req.method === "PATCH" && requestUrl.pathname.startsWith("/api/local/clients/")) {
       const clientId = requestUrl.pathname.split("/").pop();
       const body = await readJsonBody(req);
-      const result = await updateLocalClient(clientId, body);
+      const result = await updateClient(clientId, body);
       sendJson(res, 200, result);
       return;
     }
@@ -157,7 +161,7 @@ createServer(async (req, res) => {
     if (req.method === "PATCH" && requestUrl.pathname.startsWith("/api/local/inventory/")) {
       const batchId = requestUrl.pathname.split("/").pop();
       const body = await readJsonBody(req);
-      const result = await updateLocalInventoryBatch(batchId, body);
+      const result = await updateInventoryBatch(batchId, body);
       sendJson(res, 200, result);
       return;
     }
@@ -166,7 +170,7 @@ createServer(async (req, res) => {
       const parts = requestUrl.pathname.split("/");
       const batchId = parts[parts.length - 2];
       const body = await readJsonBody(req);
-      const result = await adjustLocalInventoryBatch(batchId, Number(body.delta ?? 0), body.reason ?? "manual-adjustment");
+      const result = await adjustInventoryBatch(batchId, Number(body.delta ?? 0), body.reason ?? "manual-adjustment");
       sendJson(res, 200, result);
       return;
     }
@@ -205,6 +209,39 @@ createServer(async (req, res) => {
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/auth/logout") {
       const result = logoutDesktopSession();
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/local/auth/me") {
+      const result = await getCurrentRemoteUser();
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/local/analytics/daily-sales") {
+      const result = await getRemoteDailySales({
+        from: requestUrl.searchParams.get("from"),
+        to: requestUrl.searchParams.get("to")
+      });
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/local/analytics/top-medicines") {
+      const result = await getRemoteTopMedicines({
+        from: requestUrl.searchParams.get("from"),
+        to: requestUrl.searchParams.get("to"),
+        limit: requestUrl.searchParams.get("limit")
+      });
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === "GET" && requestUrl.pathname === "/api/local/analytics/expiry-loss") {
+      const result = await getRemoteExpiryLoss({
+        days: requestUrl.searchParams.get("days")
+      });
       sendJson(res, 200, result);
       return;
     }
