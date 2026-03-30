@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
@@ -18,44 +18,44 @@
         <div class="brand-block">
           <div class="brand-mark">PS</div>
           <div>
-            <p class="eyebrow">Desktop Suite</p>
+            <p class="eyebrow" data-i18n="shell.desktopSuite">Desktop Suite</p>
             <h1>PharmaSync</h1>
           </div>
         </div>
 
-        <button class="quick-action">+ New Invoice</button>
+        <button class="quick-action" data-i18n="shell.newInvoice">+ New Invoice</button>
 
         <nav class="nav-groups">
-          <button class="nav-item active" data-section="overview">Overview</button>
-          <button class="nav-item" data-section="crm">Clients</button>
-          <button class="nav-item" data-section="calendar">Scheduling</button>
-          <button class="nav-item" data-section="billing">Billing</button>
-          <button class="nav-item" data-section="inventory">Inventory</button>
-          <button class="nav-item" data-section="messages">Messaging</button>
-          <button class="nav-item" data-section="analytics">Analytics</button>
-          <button class="nav-item" data-section="conflicts">Conflicts</button>
-          <button class="nav-item" data-section="sync">Sync Center</button>
-          <button class="nav-item" data-section="settings">Settings</button>
+          <button class="nav-item active" data-section="overview" data-i18n="shell.nav.overview">Overview</button>
+          <button class="nav-item" data-section="crm" data-i18n="shell.nav.crm">Clients</button>
+          <button class="nav-item" data-section="calendar" data-i18n="shell.nav.calendar">Scheduling</button>
+          <button class="nav-item" data-section="billing" data-i18n="shell.nav.billing">Billing</button>
+          <button class="nav-item" data-section="inventory" data-i18n="shell.nav.inventory">Inventory</button>
+          <button class="nav-item" data-section="messages" data-i18n="shell.nav.messages">Messaging</button>
+          <button class="nav-item" data-section="analytics" data-i18n="shell.nav.analytics">Analytics</button>
+          <button class="nav-item" data-section="conflicts" data-i18n="shell.nav.conflicts">Conflicts</button>
+          <button class="nav-item" data-section="sync" data-i18n="shell.nav.sync">Sync Center</button>
+          <button class="nav-item" data-section="settings" data-i18n="shell.nav.settings">Settings</button>
         </nav>
 
         <div class="sidebar-footer">
-          <p class="eyebrow">Branch</p>
-          <strong>Juba Main Store</strong>
-          <p>Offline queue: <span id="offlineCount">18 events</span></p>
+          <p class="eyebrow" data-i18n="shell.branch">Branch</p>
+          <strong data-i18n="shell.branchValue">Juba Main Store</strong>
+          <p><span data-i18n="shell.offlineQueue">Offline queue:</span> <span id="offlineCount">18 events</span></p>
         </div>
       </aside>
 
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">South Sudan ready</p>
+            <p class="eyebrow" data-i18n="shell.southSudanReady">South Sudan ready</p>
             <h2 id="headline">Operations overview</h2>
           </div>
 
           <div class="topbar-actions">
-            <input id="searchInput" type="search" placeholder="Search clients, invoices, medicines" />
+            <input id="searchInput" type="search" placeholder="Search clients, invoices, medicines" data-i18n-placeholder="shell.searchPlaceholder" />
             <button id="syncStatusBadge" class="sync-badge sync-idle" type="button">Waiting</button>
-            <button id="syncNowButton" type="button">Sync now</button>
+            <button id="syncNowButton" type="button" data-i18n="shell.syncNow">Sync now</button>
             <button id="languageToggle">AR</button>
             <button id="themeToggle">Dark</button>
           </div>
@@ -63,27 +63,26 @@
 
         <section class="hero-panel">
           <div>
-            <p class="eyebrow">Today</p>
-            <h3>Fast enough for the front desk. Strong enough for finance and stock control.</h3>
-            <p class="hero-copy">
-              Built for pharmacies, drug stores, and service businesses working with intermittent internet,
-              mobile money, and multi-language communication.
+            <p class="eyebrow" data-i18n="shell.today">Today</p>
+            <h3 data-i18n="shell.heroTitle">Fast enough for the front desk. Strong enough for finance and stock control.</h3>
+            <p class="hero-copy" data-i18n="shell.heroCopy">
+              Built for pharmacies, drug stores, and service businesses working with intermittent internet, mobile money, and multi-language communication.
             </p>
-            <p class="trust-line">Your data is محفوظ locally and synced securely.</p>
+            <p class="trust-line" data-i18n="shell.heroTrust">Your data is محفوظ locally and synced securely.</p>
           </div>
 
           <div class="status-cluster">
             <div>
-              <span class="label">Sync health</span>
+              <span class="label" data-i18n="shell.status.syncHealth">Sync health</span>
               <strong id="syncHealthLabel">Waiting for local sync engine</strong>
             </div>
             <div>
-              <span class="label">Primary payments</span>
-              <strong>Cash, MTN Money, Bank</strong>
+              <span class="label" data-i18n="shell.status.payments">Primary payments</span>
+              <strong data-i18n="shell.status.paymentsValue">Cash, MTN Money, Bank</strong>
             </div>
             <div>
-              <span class="label">Backup</span>
-              <strong>Encrypted local + cloud</strong>
+              <span class="label" data-i18n="shell.status.backup">Backup</span>
+              <strong data-i18n="shell.status.backupValue">Encrypted local + cloud</strong>
             </div>
           </div>
         </section>
@@ -95,10 +94,10 @@
             <section class="panel section-panel" data-panel="overview">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Action board</p>
-                  <h3>Today’s priorities</h3>
+                  <p class="eyebrow" data-i18n="sections.overview.eyebrow">Action board</p>
+                  <h3 data-i18n="sections.overview.title">Today's priorities</h3>
                 </div>
-                <span class="pill success">Live desk</span>
+                <span class="pill success" data-i18n="sections.overview.pill">Live desk</span>
               </div>
               <div class="priority-grid" id="priorityGrid"></div>
             </section>
@@ -106,8 +105,8 @@
             <section class="panel section-panel hidden" data-panel="crm">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">CRM</p>
-                  <h3>Clients and care history</h3>
+                  <p class="eyebrow" data-i18n="sections.crm.eyebrow">CRM</p>
+                  <h3 data-i18n="sections.crm.title">Clients and care history</h3>
                 </div>
               </div>
               <div class="split-layout">
@@ -115,8 +114,8 @@
                   <form class="client-form-card" id="clientForm">
                     <div class="section-header compact">
                       <div>
-                        <p class="eyebrow">Local-first create</p>
-                        <h4>Add or update client</h4>
+                        <p class="eyebrow" data-i18n="sections.crm.localFirstCreate">Local-first create</p>
+                        <h4 data-i18n="sections.crm.formTitle">Add or update client</h4>
                       </div>
                       <span class="pill" id="clientFormMode">Create</span>
                     </div>
@@ -135,7 +134,7 @@
                 <div class="detail-card">
                   <div class="client-hero">
                     <div>
-                      <p class="eyebrow">Selected client</p>
+                      <p class="eyebrow" data-i18n="sections.crm.selectedClient">Selected client</p>
                       <h4 id="clientName">Mariam Deng</h4>
                     </div>
                     <span class="pill">Chronic care</span>
@@ -149,8 +148,8 @@
             <section class="panel section-panel hidden" data-panel="conflicts">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Review queue</p>
-                  <h3>Conflict center</h3>
+                  <p class="eyebrow" data-i18n="sections.conflicts.eyebrow">Review queue</p>
+                  <h3 data-i18n="sections.conflicts.title">Conflict center</h3>
                 </div>
                 <span class="pill warning" id="conflictBadge">0 waiting</span>
               </div>
@@ -163,10 +162,10 @@
             <section class="panel section-panel hidden" data-panel="calendar">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Scheduling</p>
-                  <h3>Appointments and staff availability</h3>
+                  <p class="eyebrow" data-i18n="sections.calendar.eyebrow">Scheduling</p>
+                  <h3 data-i18n="sections.calendar.title">Appointments and staff availability</h3>
                 </div>
-                <span class="pill warning">7 reminders pending</span>
+                <span class="pill warning" data-i18n="sections.calendar.pill">7 reminders pending</span>
               </div>
               <div class="schedule-table" id="scheduleTable"></div>
             </section>
@@ -174,8 +173,8 @@
             <section class="panel section-panel hidden" data-panel="billing">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Billing</p>
-                  <h3>Invoice issuance and payment capture</h3>
+                  <p class="eyebrow" data-i18n="sections.billing.eyebrow">Billing</p>
+                  <h3 data-i18n="sections.billing.title">Invoice issuance and payment capture</h3>
                 </div>
               </div>
               <div class="billing-grid">
@@ -187,8 +186,8 @@
             <section class="panel section-panel hidden" data-panel="inventory">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Inventory</p>
-                  <h3>Batch-level stock control</h3>
+                  <p class="eyebrow" data-i18n="sections.inventory.eyebrow">Inventory</p>
+                  <h3 data-i18n="sections.inventory.title">Batch-level stock control</h3>
                 </div>
               </div>
               <div class="inventory-table" id="inventoryTable"></div>
@@ -197,8 +196,8 @@
             <section class="panel section-panel hidden" data-panel="messages">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Messaging</p>
-                  <h3>SMS-first communication</h3>
+                  <p class="eyebrow" data-i18n="sections.messages.eyebrow">Messaging</p>
+                  <h3 data-i18n="sections.messages.title">SMS-first communication</h3>
                 </div>
               </div>
               <div class="message-layout">
@@ -210,8 +209,8 @@
             <section class="panel section-panel hidden" data-panel="analytics">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Reporting</p>
-                  <h3>Revenue, stock risk, and channel mix</h3>
+                  <p class="eyebrow" data-i18n="sections.analytics.eyebrow">Reporting</p>
+                  <h3 data-i18n="sections.analytics.title">Revenue, stock risk, and channel mix</h3>
                 </div>
               </div>
               <div class="analytics-layout">
@@ -223,8 +222,8 @@
             <section class="panel section-panel hidden" data-panel="sync">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Sync engine</p>
-                  <h3>Offline-first reconciliation</h3>
+                  <p class="eyebrow" data-i18n="sections.sync.eyebrow">Sync engine</p>
+                  <h3 data-i18n="sections.sync.title">Offline-first reconciliation</h3>
                 </div>
                 <span class="pill" id="syncPill">Auto retry enabled</span>
               </div>
@@ -234,8 +233,8 @@
             <section class="panel section-panel hidden" data-panel="settings">
               <div class="section-header">
                 <div>
-                  <p class="eyebrow">Configuration</p>
-                  <h3>Device, sync, and backup</h3>
+                  <p class="eyebrow" data-i18n="sections.settings.eyebrow">Configuration</p>
+                  <h3 data-i18n="sections.settings.title">Device, sync, and backup</h3>
                 </div>
               </div>
               <div class="conflict-layout">
@@ -247,18 +246,18 @@
 
           <aside class="inspector">
             <section class="inspector-panel">
-              <p class="eyebrow">Snapshot</p>
-              <h3>Today at a glance</h3>
+              <p class="eyebrow" data-i18n="sections.inspector.snapshot">Snapshot</p>
+              <h3 data-i18n="sections.inspector.snapshotTitle">Today at a glance</h3>
               <div id="miniStats" class="mini-stats"></div>
             </section>
 
             <section class="inspector-panel">
-              <p class="eyebrow">Low stock</p>
+              <p class="eyebrow" data-i18n="sections.inspector.lowStock">Low stock</p>
               <div id="lowStockList" class="signal-list"></div>
             </section>
 
             <section class="inspector-panel">
-              <p class="eyebrow">Next messages</p>
+              <p class="eyebrow" data-i18n="sections.inspector.nextMessages">Next messages</p>
               <div id="messageQueue" class="signal-list"></div>
             </section>
           </aside>
@@ -266,6 +265,6 @@
       </main>
     </div>
 
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./legacy-app.js"></script>
   </body>
 </html>

@@ -46,6 +46,19 @@ body.dark {
 
 h1, h2, h3, h4, strong, button, input { font-family: "Manrope", sans-serif; }
 button, input { font: inherit; }
+html[lang="ar"] body,
+html[lang="ar"] * {
+  font-family: "Cairo", "IBM Plex Sans", sans-serif;
+}
+html[dir="rtl"] .sidebar {
+  border-right: none;
+  border-left: 1px solid var(--line);
+}
+html[dir="rtl"] .nav-item,
+html[dir="rtl"] .client-row,
+html[dir="rtl"] .conflict-row {
+  text-align: right;
+}
 
 .app-shell { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
 .sidebar {
@@ -277,6 +290,25 @@ body.dark .inline-form-card select { background: rgba(255, 255, 255, 0.04); }
 .bar { flex: 1; border-radius: 18px 18px 8px 8px; background: linear-gradient(180deg, #d7bb7b, var(--accent)); position: relative; min-height: 28px; }
 .bar span { position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); color: var(--muted); font-size: 0.82rem; }
 .signal-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.inventory-grid-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.inventory-grid-table th,
+.inventory-grid-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+html[dir="rtl"] .inventory-grid-table th,
+html[dir="rtl"] .inventory-grid-table td {
+  text-align: right;
+}
 .client-row,
 .conflict-row {
   width: 100%;

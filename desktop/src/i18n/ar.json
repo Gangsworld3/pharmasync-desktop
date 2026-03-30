@@ -1,0 +1,22 @@
+{
+  "sales": "المبيعات",
+  "inventory": "المخزون",
+  "expiry": "تواريخ الانتهاء",
+  "appointments": "المواعيد",
+  "search": "ابحث عن دواء",
+  "scanBarcode": "مسح الباركود",
+  "completeSale": "إتمام البيع",
+  "cash": "نقدًا",
+  "card": "بطاقة",
+  "total": "الإجمالي",
+  "expired": "منتهي الصلاحية",
+  "expiringSoon": "قارب على الانتهاء",
+  "lowStock": "مخزون منخفض",
+  "all": "الكل",
+  "nearExpiry": "قرب الانتهاء",
+  "statusOk": "صالح",
+  "statusWarning": "قرب الانتهاء",
+  "statusExpired": "منتهي",
+  "addStock": "إضافة مخزون",
+  "calendar": "التقويم"
+}

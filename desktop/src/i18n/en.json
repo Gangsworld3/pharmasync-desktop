@@ -1,0 +1,22 @@
+{
+  "sales": "Sales",
+  "inventory": "Inventory",
+  "expiry": "Expiry",
+  "appointments": "Appointments",
+  "search": "Search medicine",
+  "scanBarcode": "Scan Barcode",
+  "completeSale": "Complete Sale",
+  "cash": "Cash",
+  "card": "Card",
+  "total": "Total",
+  "expired": "Expired",
+  "expiringSoon": "Expiring Soon",
+  "lowStock": "Low Stock",
+  "all": "All",
+  "nearExpiry": "Near Expiry",
+  "statusOk": "Valid",
+  "statusWarning": "Expiring Soon",
+  "statusExpired": "Expired",
+  "addStock": "Add Stock",
+  "calendar": "Calendar"
+}

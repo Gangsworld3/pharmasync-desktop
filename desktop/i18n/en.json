@@ -1,0 +1,182 @@
+{
+  "app": {
+    "headline": "Operations overview",
+    "languageToggle": "AR",
+    "themeLight": "Light",
+    "themeDark": "Dark"
+  },
+  "shell": {
+    "desktopSuite": "Desktop Suite",
+    "newInvoice": "+ New Invoice",
+    "nav": {
+      "overview": "Overview",
+      "crm": "Clients",
+      "calendar": "Scheduling",
+      "billing": "Billing",
+      "inventory": "Inventory",
+      "messages": "Messaging",
+      "analytics": "Analytics",
+      "conflicts": "Conflicts",
+      "sync": "Sync Center",
+      "settings": "Settings"
+    },
+    "branch": "Branch",
+    "branchValue": "Juba Main Store",
+    "offlineQueue": "Offline queue:",
+    "southSudanReady": "South Sudan ready",
+    "searchPlaceholder": "Search clients, invoices, medicines",
+    "syncNow": "Sync now",
+    "today": "Today",
+    "heroTitle": "Fast enough for the front desk. Strong enough for finance and stock control.",
+    "heroCopy": "Built for pharmacies, drug stores, and service businesses working with intermittent internet, mobile money, and multi-language communication.",
+    "heroTrust": "Your data is محفوظ locally and synced securely.",
+    "status": {
+      "syncHealth": "Sync health",
+      "syncHealthWaiting": "Waiting for local sync engine",
+      "payments": "Primary payments",
+      "paymentsValue": "Cash, MTN Money, Bank",
+      "backup": "Backup",
+      "backupValue": "Encrypted local + cloud"
+    }
+  },
+  "sections": {
+    "overview": {
+      "eyebrow": "Action board",
+      "title": "Today's priorities",
+      "pill": "Live desk"
+    },
+    "crm": {
+      "eyebrow": "CRM",
+      "title": "Clients and care history",
+      "localFirstCreate": "Local-first create",
+      "formTitle": "Add or update client",
+      "selectedClient": "Selected client"
+    },
+    "conflicts": {
+      "eyebrow": "Review queue",
+      "title": "Conflict center",
+      "waiting": "waiting"
+    },
+    "calendar": {
+      "eyebrow": "Scheduling",
+      "title": "Appointments and staff availability",
+      "pill": "7 reminders pending"
+    },
+    "billing": {
+      "eyebrow": "Billing",
+      "title": "Invoice issuance and payment capture"
+    },
+    "inventory": {
+      "eyebrow": "Inventory",
+      "title": "Batch-level stock control"
+    },
+    "messages": {
+      "eyebrow": "Messaging",
+      "title": "SMS-first communication"
+    },
+    "analytics": {
+      "eyebrow": "Reporting",
+      "title": "Revenue, stock risk, and channel mix"
+    },
+    "sync": {
+      "eyebrow": "Sync engine",
+      "title": "Offline-first reconciliation",
+      "pill": "Auto retry enabled"
+    },
+    "settings": {
+      "eyebrow": "Configuration",
+      "title": "Device, sync, and backup"
+    },
+    "inspector": {
+      "snapshot": "Snapshot",
+      "snapshotTitle": "Today at a glance",
+      "lowStock": "Low stock",
+      "nextMessages": "Next messages"
+    }
+  },
+  "sync": {
+    "needsAttention": "Needs attention",
+    "reconnecting": "Reconnecting...",
+    "syncing": "Syncing changes...",
+    "queued": "Queued locally",
+    "savedLocallySyncing": "Saved locally - syncing...",
+    "synced": "Synced",
+    "waiting": "Waiting",
+    "waitingFirst": "Waiting for first sync",
+    "localReady": "The desktop is ready to work locally.",
+    "networkAttention": "Network or server attention needed.",
+    "nextRetryIn": "Next retry in ~{seconds}s.",
+    "conflictsCount": "Conflicts {count}",
+    "fewRecordsNeedDecision": "A few records need a quick human decision.",
+    "localWorkSafe": "Local work is safe. Cloud reconciliation is running.",
+    "localChangesWaiting": "{count} local changes waiting for sync.",
+    "revisionSynced": "Revision {revision} - synced",
+    "everythingReconciled": "Everything local has been reconciled to the server."
+  },
+  "kpi": {
+    "clients": "Clients",
+    "appointments": "Appointments",
+    "invoices": "Invoices",
+    "inventory": "Inventory",
+    "localFirstCrm": "Local-first CRM records",
+    "bookedInstantly": "Booked instantly on-device",
+    "capturedOffline": "Captured without waiting for network",
+    "localChangesWaiting": "{count} local changes waiting"
+  },
+  "content": {
+    "priorities": [
+      {
+        "title": "Morning stock receipt",
+        "body": "Receive amoxicillin, ORS, and glucose strips with batch and expiry capture.",
+        "meta": "Dock closes at 10:30"
+      },
+      {
+        "title": "Pending mobile money settlement",
+        "body": "Confirm three MTN money references before issuing end-of-day report.",
+        "meta": "SSP 1.16M awaiting verification"
+      },
+      {
+        "title": "Care reminders",
+        "body": "Send refill reminders in English and Arabic for chronic care clients.",
+        "meta": "36 SMS scheduled"
+      },
+      {
+        "title": "Branch sync",
+        "body": "Every local write is immediate. Sync catches up quietly when the connection returns.",
+        "meta": "Background sync enabled"
+      }
+    ]
+  },
+  "common": {
+    "noPhoneRecorded": "No phone recorded",
+    "savedLocallySyncing": "Saved locally • syncing…",
+    "syncedCheck": "Synced ✓",
+    "syncingEllipsis": "syncing…",
+    "noClientsYet": "No clients yet",
+    "createClientHint": "Create a client locally and let the sync engine handle the rest."
+  },
+  "toasts": {
+    "clientSaveNeedsAttention": "Client save needs attention",
+    "savedLocallySyncing": "Saved locally • syncing…",
+    "appointmentSaveNeedsAttention": "Appointment save needs attention",
+    "appointmentSavedLocally": "Appointment saved locally • syncing…",
+    "saleCouldNotBeSaved": "Sale could not be saved locally",
+    "saleSavedLocally": "Sale saved locally • syncing…",
+    "conflictActionFailed": "Conflict action failed",
+    "conflictRescheduled": "Appointment rescheduled locally - syncing...",
+    "conflictRetryQueued": "Conflict moved to retry queue",
+    "conflictResolvedServer": "Conflict resolved with server state",
+    "conflictDeferred": "Conflict deferred",
+    "syncCompleted": "Sync completed",
+    "syncFailedRetrying": "Sync failed - {error} ({nextRetry})",
+    "settingsSaveFailed": "Settings save failed",
+    "settingsSaved": "Settings saved",
+    "backupExportFailed": "Backup export failed",
+    "backupExported": "Backup exported to {path}",
+    "enterCredentials": "Enter email and password",
+    "desktopSignInFailed": "Desktop sign-in failed",
+    "signedIn": "Signed in",
+    "signOutFailed": "Sign out failed",
+    "signedOut": "Signed out"
+  }
+}

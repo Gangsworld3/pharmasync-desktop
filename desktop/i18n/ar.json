@@ -1,0 +1,182 @@
+{
+  "app": {
+    "headline": "نظرة تشغيلية عامة",
+    "languageToggle": "EN",
+    "themeLight": "فاتح",
+    "themeDark": "داكن"
+  },
+  "shell": {
+    "desktopSuite": "منصة سطح المكتب",
+    "newInvoice": "+ فاتورة جديدة",
+    "nav": {
+      "overview": "نظرة عامة",
+      "crm": "العملاء",
+      "calendar": "المواعيد",
+      "billing": "الفوترة",
+      "inventory": "المخزون",
+      "messages": "الرسائل",
+      "analytics": "التحليلات",
+      "conflicts": "التعارضات",
+      "sync": "مركز المزامنة",
+      "settings": "الإعدادات"
+    },
+    "branch": "الفرع",
+    "branchValue": "فرع جوبا الرئيسي",
+    "offlineQueue": "طابور العمل دون اتصال:",
+    "southSudanReady": "جاهز لجنوب السودان",
+    "searchPlaceholder": "ابحث عن عميل أو فاتورة أو دواء",
+    "syncNow": "زامن الآن",
+    "today": "اليوم",
+    "heroTitle": "سريع بما يكفي لواجهة الصيدلية، وقوي للتحكم المالي والمخزون.",
+    "heroCopy": "مصمم للصيدليات والمتاجر العاملة في بيئات اتصال متقطع مع دعم الدفع عبر الهاتف.",
+    "heroTrust": "بياناتك محفوظة محليًا وتتم مزامنتها بأمان.",
+    "status": {
+      "syncHealth": "حالة المزامنة",
+      "syncHealthWaiting": "بانتظار محرك المزامنة المحلي",
+      "payments": "وسائل الدفع الأساسية",
+      "paymentsValue": "نقدًا، MTN Money، بنك",
+      "backup": "النسخ الاحتياطي",
+      "backupValue": "محلي مشفر + سحابي"
+    }
+  },
+  "sections": {
+    "overview": {
+      "eyebrow": "لوحة الإجراءات",
+      "title": "أولويات اليوم",
+      "pill": "المكتب مباشر"
+    },
+    "crm": {
+      "eyebrow": "إدارة العملاء",
+      "title": "العملاء وسجل الرعاية",
+      "localFirstCreate": "إدخال محلي أولاً",
+      "formTitle": "إضافة أو تحديث عميل",
+      "selectedClient": "العميل المحدد"
+    },
+    "conflicts": {
+      "eyebrow": "قائمة المراجعة",
+      "title": "مركز التعارضات",
+      "waiting": "بانتظار المعالجة"
+    },
+    "calendar": {
+      "eyebrow": "المواعيد",
+      "title": "المواعيد وتوفر الموظفين",
+      "pill": "7 تذكيرات معلقة"
+    },
+    "billing": {
+      "eyebrow": "الفوترة",
+      "title": "إصدار الفواتير وتحصيل الدفعات"
+    },
+    "inventory": {
+      "eyebrow": "المخزون",
+      "title": "تحكم المخزون حسب الدفعات"
+    },
+    "messages": {
+      "eyebrow": "الرسائل",
+      "title": "تواصل يعتمد على الرسائل القصيرة"
+    },
+    "analytics": {
+      "eyebrow": "التقارير",
+      "title": "الإيراد ومخاطر المخزون ومزيج القنوات"
+    },
+    "sync": {
+      "eyebrow": "محرك المزامنة",
+      "title": "تسوية العمل دون اتصال",
+      "pill": "إعادة المحاولة التلقائية مفعّلة"
+    },
+    "settings": {
+      "eyebrow": "التهيئة",
+      "title": "الجهاز والمزامنة والنسخ الاحتياطي"
+    },
+    "inspector": {
+      "snapshot": "ملخص فوري",
+      "snapshotTitle": "نظرة اليوم",
+      "lowStock": "نقص المخزون",
+      "nextMessages": "الرسائل القادمة"
+    }
+  },
+  "sync": {
+    "needsAttention": "تحتاج متابعة",
+    "reconnecting": "جارٍ إعادة الاتصال...",
+    "syncing": "جارٍ مزامنة التغييرات...",
+    "queued": "محفوظ محليًا",
+    "savedLocallySyncing": "تم الحفظ محليًا - جارٍ المزامنة...",
+    "synced": "تمت المزامنة",
+    "waiting": "بانتظار",
+    "waitingFirst": "بانتظار أول مزامنة",
+    "localReady": "التطبيق جاهز للعمل محليًا.",
+    "networkAttention": "هناك مشكلة شبكة أو خادم تحتاج متابعة.",
+    "nextRetryIn": "إعادة المحاولة التالية خلال ~{seconds}ث.",
+    "conflictsCount": "تعارضات {count}",
+    "fewRecordsNeedDecision": "بعض السجلات تحتاج قرارًا سريعًا.",
+    "localWorkSafe": "العمل المحلي آمن. التسوية السحابية قيد التنفيذ.",
+    "localChangesWaiting": "{count} تغييرات محلية بانتظار المزامنة.",
+    "revisionSynced": "المراجعة {revision} تمت مزامنتها",
+    "everythingReconciled": "تمت تسوية كل البيانات المحلية مع الخادم."
+  },
+  "kpi": {
+    "clients": "العملاء",
+    "appointments": "المواعيد",
+    "invoices": "الفواتير",
+    "inventory": "المخزون",
+    "localFirstCrm": "سجلات عملاء محلية أولاً",
+    "bookedInstantly": "حجز فوري على الجهاز",
+    "capturedOffline": "تسجيل بدون انتظار الشبكة",
+    "localChangesWaiting": "{count} تغييرات محلية بانتظار"
+  },
+  "content": {
+    "priorities": [
+      {
+        "title": "استلام مخزون الصباح",
+        "body": "استلام الأموكسيسيلين ومحاليل الإماهة وشرائط السكر مع تسجيل الدفعة وتاريخ الانتهاء.",
+        "meta": "إغلاق الرصيف الساعة 10:30"
+      },
+      {
+        "title": "تسوية المدفوعات عبر الهاتف",
+        "body": "تأكيد ثلاث عمليات MTN Money قبل إصدار تقرير نهاية اليوم.",
+        "meta": "1.16 مليون جنيه بانتظار التحقق"
+      },
+      {
+        "title": "تذكيرات الرعاية",
+        "body": "إرسال تذكيرات إعادة الصرف بالإنجليزية والعربية لعملاء الأمراض المزمنة.",
+        "meta": "36 رسالة مجدولة"
+      },
+      {
+        "title": "مزامنة الفروع",
+        "body": "كل كتابة محلية تتم فورًا، وتلتحق المزامنة تلقائيًا عند عودة الاتصال.",
+        "meta": "المزامنة الخلفية مفعّلة"
+      }
+    ]
+  },
+  "common": {
+    "noPhoneRecorded": "لا يوجد رقم هاتف",
+    "savedLocallySyncing": "تم الحفظ محليًا • جارٍ المزامنة…",
+    "syncedCheck": "تمت المزامنة ✓",
+    "syncingEllipsis": "جارٍ المزامنة…",
+    "noClientsYet": "لا يوجد عملاء بعد",
+    "createClientHint": "أنشئ عميلًا محليًا ودع محرك المزامنة يكمل الباقي."
+  },
+  "toasts": {
+    "clientSaveNeedsAttention": "حفظ العميل يحتاج متابعة",
+    "savedLocallySyncing": "تم الحفظ محليًا • جارٍ المزامنة…",
+    "appointmentSaveNeedsAttention": "حفظ الموعد يحتاج متابعة",
+    "appointmentSavedLocally": "تم حفظ الموعد محليًا • جارٍ المزامنة…",
+    "saleCouldNotBeSaved": "تعذر حفظ عملية البيع محليًا",
+    "saleSavedLocally": "تم حفظ البيع محليًا • جارٍ المزامنة…",
+    "conflictActionFailed": "فشلت معالجة التعارض",
+    "conflictRescheduled": "تمت إعادة جدولة الموعد محليًا - جارٍ المزامنة...",
+    "conflictRetryQueued": "تم نقل التعارض لقائمة إعادة المحاولة",
+    "conflictResolvedServer": "تم حل التعارض باعتماد بيانات الخادم",
+    "conflictDeferred": "تم تأجيل التعارض",
+    "syncCompleted": "اكتملت المزامنة",
+    "syncFailedRetrying": "فشلت المزامنة - {error} ({nextRetry})",
+    "settingsSaveFailed": "فشل حفظ الإعدادات",
+    "settingsSaved": "تم حفظ الإعدادات",
+    "backupExportFailed": "فشل تصدير النسخة الاحتياطية",
+    "backupExported": "تم تصدير النسخة الاحتياطية إلى {path}",
+    "enterCredentials": "أدخل البريد وكلمة المرور",
+    "desktopSignInFailed": "فشل تسجيل الدخول للتطبيق",
+    "signedIn": "تم تسجيل الدخول",
+    "signOutFailed": "فشل تسجيل الخروج",
+    "signedOut": "تم تسجيل الخروج"
+  }
+}

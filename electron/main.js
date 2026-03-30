@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 let mainWindow = null;
+const uiMode = process.env.PHARMASYNC_UI_MODE === "react" ? "react" : "legacy";
 
 async function bootDesktopServer() {
   process.env.PORT = process.env.PORT || "4173";
@@ -21,11 +22,13 @@ async function createWindow() {
     backgroundColor: "#121416",
     autoHideMenuBar: true,
     webPreferences: {
-      contextIsolation: true
+      contextIsolation: true,
+      preload: join(app.getAppPath(), "electron", "preload.js")
     }
   });
 
-  await mainWindow.loadURL("http://127.0.0.1:4173");
+  const entryPath = uiMode === "react" ? "/react-shell.html" : "/";
+  await mainWindow.loadURL(`http://127.0.0.1:4173${entryPath}`);
 }
 
 app.whenReady().then(createWindow);

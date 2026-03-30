@@ -59,4 +59,5 @@ release/
 .DS_Store
 Thumbs.db
 .vscode/
+.vs/
 .idea/
