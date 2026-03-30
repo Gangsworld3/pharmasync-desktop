@@ -86,6 +86,14 @@ function jitterMs(baseMs) {
   return Math.max(250, randomized);
 }
 
+function logSyncEvent(event, payload = {}) {
+  appendDesktopLog("sync.log", JSON.stringify({
+    event,
+    at: new Date().toISOString(),
+    ...payload
+  }));
+}
+
 function classifyErrorMessage(error) {
   const message = String(error?.message ?? "").toLowerCase();
   return message.includes("network")
@@ -158,6 +166,8 @@ async function getAuthHeaders(forceRefresh = false) {
     saveDesktopSession({
       accessToken: authToken,
       email,
+      role: payload.data.role ?? null,
+      tenantId: payload.data.tenant_id ?? null,
       createdAt: new Date().toISOString()
     });
   }
@@ -247,6 +257,8 @@ export async function authenticateDesktopSession(email, password) {
   saveDesktopSession({
     accessToken: authToken,
     email,
+    role: payload.data.role ?? null,
+    tenantId: payload.data.tenant_id ?? null,
     createdAt: new Date().toISOString()
   });
   appendDesktopLog("sync.log", `auth success email=${email}`);
@@ -258,6 +270,53 @@ export function logoutDesktopSession() {
   clearDesktopSession();
   appendDesktopLog("sync.log", "auth logout");
   return { authenticated: false };
+}
+
+export async function getCurrentRemoteUser() {
+  const { response, body } = await authorizedJsonRequest("/auth/me", { method: "GET" });
+  if (!response.ok) {
+    throw new Error(body?.error?.message || body?.detail || `Failed to fetch current user (${response.status}).`);
+  }
+  return body?.data ?? null;
+}
+
+export async function getRemoteDailySales(params = {}) {
+  const fromDate = params.from;
+  const toDate = params.to;
+  if (!fromDate || !toDate) {
+    throw new Error("daily-sales requires from and to dates.");
+  }
+  const query = new URLSearchParams({ from: fromDate, to: toDate });
+  const { response, body } = await authorizedJsonRequest(`/analytics/daily-sales?${query.toString()}`, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(body?.error?.message || body?.detail || `Failed to fetch daily sales (${response.status}).`);
+  }
+  return body?.data ?? [];
+}
+
+export async function getRemoteTopMedicines(params = {}) {
+  const fromDate = params.from;
+  const toDate = params.to;
+  const limit = Number(params.limit ?? 10);
+  if (!fromDate || !toDate) {
+    throw new Error("top-medicines requires from and to dates.");
+  }
+  const query = new URLSearchParams({ from: fromDate, to: toDate, limit: String(limit) });
+  const { response, body } = await authorizedJsonRequest(`/analytics/top-medicines?${query.toString()}`, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(body?.error?.message || body?.detail || `Failed to fetch top medicines (${response.status}).`);
+  }
+  return body?.data ?? [];
+}
+
+export async function getRemoteExpiryLoss(params = {}) {
+  const days = Number(params.days ?? 30);
+  const query = new URLSearchParams({ days: String(days) });
+  const { response, body } = await authorizedJsonRequest(`/analytics/expiry-loss?${query.toString()}`, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(body?.error?.message || body?.detail || `Failed to fetch expiry loss (${response.status}).`);
+  }
+  return body?.data ?? null;
 }
 
 function parsePayloadJson(raw) {
@@ -451,7 +510,8 @@ function buildPushContext() {
       sanitizePositiveNumber,
       buildSyncChange,
       mapConflict,
-      sortServerChanges
+      sortServerChanges,
+      logSyncEvent
     }
   };
 }
@@ -550,6 +610,8 @@ export async function getSyncEngineStatus() {
     remoteBaseUrl: deviceState.remoteBaseUrl ?? getRemoteConfig().baseUrl,
     authenticated: Boolean(session?.accessToken),
     sessionEmail: session?.email ?? null,
+    sessionRole: session?.role ?? null,
+    sessionTenantId: session?.tenantId ?? null,
     retryBackoffMs,
     nextScheduledAt: nextScheduledAt?.toISOString() ?? null
   };

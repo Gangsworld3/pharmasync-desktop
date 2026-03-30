@@ -20,6 +20,15 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
   });
 
   if (!plan.batches.length) {
+    for (const deferred of plan.deferredOperationStates) {
+      helpers.logSyncEvent?.("sync_deferred", {
+        operationId: deferred.operationId,
+        status: deferred.status,
+        attempts: deferred.attempts ?? 0,
+        backoffMs: deferred.backoffMs ?? 0,
+        nextAttemptAt: deferred.nextAttemptAt ?? null
+      });
+    }
     return {
       pushed: 0,
       revision: deviceState.lastPulledRevision,
@@ -36,6 +45,12 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
   for (const batch of plan.batches) {
     const batchAttemptStartedAt = clock.now();
     for (const operation of batch) {
+      helpers.logSyncEvent?.("sync_attempt", {
+        operationId: operation.operationId,
+        status: operation.status,
+        attempts: operation.attempts ?? 0,
+        backoffMs: operation.backoffMs ?? 0
+      });
       await repo.applyTransition(operation, "START_ATTEMPT", { now: batchAttemptStartedAt });
     }
 
@@ -62,6 +77,11 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
           now: clock.now()
         });
         await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
+        helpers.logSyncEvent?.("sync_failed_transport", {
+          operationId: operation.operationId,
+          status: "RETRY_SCHEDULED",
+          reason: error.message || "Push request failed"
+        });
       }
       throw error;
     }
@@ -81,6 +101,11 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
           now: clock.now()
         });
         await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
+        helpers.logSyncEvent?.("sync_failed_response", {
+          operationId: operation.operationId,
+          status: "RETRY_SCHEDULED",
+          httpStatus: handled.status
+        });
       }
       throw new Error(`Push failed (${handled.status}).`);
     }
@@ -97,7 +122,13 @@ export async function runPushOrchestrator({ repo, api, clock, config, policy, he
         mapConflict: helpers.mapConflict,
         now: clock.now()
       });
-      await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
+      const nextState = await repo.applyTransition(operation, evaluation.transitionEvent, evaluation.transitionContext);
+      helpers.logSyncEvent?.("sync_result", {
+        operationId: operation.operationId,
+        status: nextState,
+        outcome: result?.status ?? "MISSING_RESULT",
+        attempts: (operation.attempts ?? 0) + 1
+      });
     }
 
     for (const change of handled.serverChanges) {
