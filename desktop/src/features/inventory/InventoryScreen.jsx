@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import AddStockModal from "./AddStockModal.jsx";
 import StockTable from "./StockTable.jsx";
 import { expiryStatus } from "../../domain/expiry.js";
+import { useCurrentUser } from "../../app/user-context.jsx";
 
 export default function InventoryScreen() {
+  const { currentUser } = useCurrentUser();
+  const userRole = String(currentUser?.role ?? "").toLowerCase();
+  const allowMutations = userRole === "admin" || userRole === "pharmacist";
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState(null);
@@ -35,6 +39,10 @@ export default function InventoryScreen() {
   }, [rows, filter]);
 
   async function handleSave(payload) {
+    if (!allowMutations) {
+      setError("Inventory mutations are not allowed for your role.");
+      return;
+    }
     if (!window.api) return;
     setError("");
     try {
@@ -54,6 +62,10 @@ export default function InventoryScreen() {
   }
 
   async function handleAdjust(row, delta) {
+    if (!allowMutations) {
+      setError("Inventory mutations are not allowed for your role.");
+      return;
+    }
     if (!window.api) return;
     setError("");
     try {
@@ -82,7 +94,7 @@ export default function InventoryScreen() {
       <div className="row between">
         <h2>Inventory Batches</h2>
         <div className="row">
-          <button type="button" onClick={openCreate}>Add Batch</button>
+          {allowMutations ? <button type="button" onClick={openCreate}>Add Batch</button> : null}
           <button type="button" onClick={() => setFilter("ALL")} className={filter === "ALL" ? "active-action" : ""}>All</button>
           <button type="button" onClick={() => setFilter("LOW_STOCK")} className={filter === "LOW_STOCK" ? "active-action" : ""}>Low Stock</button>
           <button type="button" onClick={() => setFilter("NEAR_EXPIRY")} className={filter === "NEAR_EXPIRY" ? "active-action" : ""}>Near Expiry</button>
@@ -90,22 +102,24 @@ export default function InventoryScreen() {
         </div>
       </div>
 
-      <StockTable rows={visibleRows} onEdit={openEdit} onAdjust={handleAdjust} />
+      <StockTable rows={visibleRows} onEdit={openEdit} onAdjust={handleAdjust} allowMutations={allowMutations} />
       <div className="card">
         <strong>Status:</strong> {status}
         {error ? <p className="danger">{error}</p> : null}
       </div>
 
-      <AddStockModal
-        open={open}
-        editingBatch={editingBatch}
-        onClose={() => {
-          setOpen(false);
-          setEditingBatch(null);
-        }}
-        onSave={handleSave}
-        errorMessage={error}
-      />
+      {allowMutations ? (
+        <AddStockModal
+          open={open}
+          editingBatch={editingBatch}
+          onClose={() => {
+            setOpen(false);
+            setEditingBatch(null);
+          }}
+          onSave={handleSave}
+          errorMessage={error}
+        />
+      ) : null}
     </section>
   );
 }

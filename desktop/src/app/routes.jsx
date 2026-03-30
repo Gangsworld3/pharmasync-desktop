@@ -4,6 +4,7 @@ import SalesScreen from "../features/sales/SalesScreen.jsx";
 import InventoryScreen from "../features/inventory/InventoryScreen.jsx";
 import ExpiryDashboard from "../features/expiry/ExpiryDashboard.jsx";
 import AppointmentScreen from "../features/appointments/AppointmentScreen.jsx";
+import AnalyticsDashboard from "../features/analytics/AnalyticsDashboard.jsx";
 
 export default function AppRoutes() {
   return (
@@ -13,6 +14,7 @@ export default function AppRoutes() {
         <Route path="/inventory" element={<InventoryScreen />} />
         <Route path="/expiry" element={<ExpiryDashboard />} />
         <Route path="/appointments" element={<AppointmentScreen />} />
+        <Route path="/analytics" element={<AnalyticsDashboard />} />
       </Routes>
     </Layout>
   );
