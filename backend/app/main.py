@@ -20,8 +20,10 @@ from app.api.routes_clients import router as clients_router
 from app.api.routes_conflicts import router as conflicts_router
 from app.api.routes_inventory import router as inventory_router
 from app.api.routes_invoices import router as invoices_router
+from app.api.routes_mobile import router as mobile_router
 from app.api.routes_messages import router as messages_router
 from app.api.routes_sync import router as sync_router
+from app.api.routes_tenants import router as tenants_router
 from app.core.config import settings
 from app.core.health import database_ready, redis_ready
 from app.core.logging import configure_logging
@@ -209,4 +211,6 @@ app.include_router(inventory_router)
 app.include_router(appointments_router)
 app.include_router(messages_router)
 app.include_router(invoices_router)
+app.include_router(mobile_router)
 app.include_router(sync_router)
+app.include_router(tenants_router)
