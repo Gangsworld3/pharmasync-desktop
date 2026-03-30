@@ -10,6 +10,10 @@ function read(relPath) {
   return fs.readFileSync(path.join(rootDir, relPath), "utf8");
 }
 
+function lineCount(relPath) {
+  return read(relPath).split(/\r?\n/).length;
+}
+
 test("sync service dependency direction is one-way", () => {
   const pushSource = read("src/services/sync-push-service.js");
   const pullSource = read("src/services/sync-pull-service.js");
@@ -28,4 +32,10 @@ test("sync service dependency direction is one-way", () => {
   assert.equal(engineSource.includes("sync-cycle-runner"), true, "engine should wire cycle runner");
   assert.equal(engineSource.includes("sync-push-service"), true, "engine should wire push service");
   assert.equal(engineSource.includes("sync-pull-service"), true, "engine should wire pull service");
+});
+
+test("sync service size budgets stay below threshold", () => {
+  assert.ok(lineCount("src/services/sync-push-service.js") < 250, "sync-push-service.js exceeded size budget");
+  assert.ok(lineCount("src/services/sync-pull-service.js") < 250, "sync-pull-service.js exceeded size budget");
+  assert.ok(lineCount("src/services/sync-cycle-runner.js") < 250, "sync-cycle-runner.js exceeded size budget");
 });
