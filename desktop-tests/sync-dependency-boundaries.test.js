@@ -15,27 +15,27 @@ function lineCount(relPath) {
 }
 
 test("sync service dependency direction is one-way", () => {
-  const pushSource = read("src/services/sync-push-service.js");
-  const pullSource = read("src/services/sync-pull-service.js");
+  const pushSource = read("src/services/sync-push/push-orchestrator.js");
+  const pullSource = read("src/services/sync-pull/pull-orchestrator.js");
   const cycleSource = read("src/services/sync-cycle-runner.js");
   const engineSource = read("src/services/sync-engine.js");
 
-  assert.equal(pushSource.includes("sync-pull-service"), false, "push must not import pull");
+  assert.equal(pushSource.includes("sync-pull"), false, "push must not import pull");
   assert.equal(pushSource.includes("sync-cycle-runner"), false, "push must not import cycle runner");
   assert.equal(pushSource.includes("sync-engine"), false, "push must not import engine");
 
-  assert.equal(pullSource.includes("sync-push-service"), false, "pull must not import push");
+  assert.equal(pullSource.includes("sync-push"), false, "pull must not import push");
   assert.equal(pullSource.includes("sync-cycle-runner"), false, "pull must not import cycle runner");
   assert.equal(pullSource.includes("sync-engine"), false, "pull must not import engine");
 
   assert.equal(cycleSource.includes("sync-engine"), false, "cycle runner must not import engine");
   assert.equal(engineSource.includes("sync-cycle-runner"), true, "engine should wire cycle runner");
-  assert.equal(engineSource.includes("sync-push-service"), true, "engine should wire push service");
-  assert.equal(engineSource.includes("sync-pull-service"), true, "engine should wire pull service");
+  assert.equal(engineSource.includes("sync-push/index"), true, "engine should wire push orchestrator");
+  assert.equal(engineSource.includes("sync-pull/index"), true, "engine should wire pull orchestrator");
 });
 
 test("sync service size budgets stay below threshold", () => {
-  assert.ok(lineCount("src/services/sync-push-service.js") < 250, "sync-push-service.js exceeded size budget");
-  assert.ok(lineCount("src/services/sync-pull-service.js") < 250, "sync-pull-service.js exceeded size budget");
+  assert.ok(lineCount("src/services/sync-push/push-orchestrator.js") < 250, "push-orchestrator.js exceeded size budget");
+  assert.ok(lineCount("src/services/sync-pull/pull-orchestrator.js") < 250, "pull-orchestrator.js exceeded size budget");
   assert.ok(lineCount("src/services/sync-cycle-runner.js") < 250, "sync-cycle-runner.js exceeded size budget");
 });

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { IPC_CHANNELS } from "./ipc-channels.js";
 
 let mainWindow = null;
 const uiMode = process.env.PHARMASYNC_UI_MODE === "react" ? "react" : "legacy";
@@ -8,17 +9,31 @@ const reactDevUrl = process.env.PHARMASYNC_REACT_DEV_URL || "http://127.0.0.1:51
 const localApiBase = "http://127.0.0.1:4173";
 
 const routeMap = Object.freeze({
-  "sync:getStatus": { method: "GET", path: "/api/local/sync/status" },
-  "sync:run": { method: "POST", path: "/api/local/sync/run" },
-  "summary:get": { method: "GET", path: "/api/local/summary" },
-  "clients:list": { method: "GET", path: "/api/local/clients" },
-  "inventory:list": { method: "GET", path: "/api/local/inventory" },
-  "inventory:create": { method: "POST", path: "/api/local/inventory" },
-  "inventory:update": { method: "PATCH", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}`, unwrapPayload: "payload" },
-  "inventory:adjust": { method: "POST", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}/adjust`, stripFields: ["batchId"] },
-  "appointments:list": { method: "GET", path: "/api/local/appointments" },
-  "invoices:create": { method: "POST", path: "/api/local/invoices" },
-  "appointments:create": { method: "POST", path: "/api/local/appointments" }
+  [IPC_CHANNELS.SYNC_STATUS]: { method: "GET", path: "/api/local/sync/status" },
+  [IPC_CHANNELS.SYNC_RUN]: { method: "POST", path: "/api/local/sync/run" },
+  [IPC_CHANNELS.AUTH_GET_CURRENT_USER]: { method: "GET", path: "/api/local/auth/me" },
+  [IPC_CHANNELS.SUMMARY_GET]: { method: "GET", path: "/api/local/summary" },
+  [IPC_CHANNELS.ANALYTICS_DAILY_SALES]: {
+    method: "GET",
+    dynamicPath: ({ from, to }) => `/api/local/analytics/daily-sales?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+  },
+  [IPC_CHANNELS.ANALYTICS_TOP_MEDICINES]: {
+    method: "GET",
+    dynamicPath: ({ from, to, limit }) =>
+      `/api/local/analytics/top-medicines?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=${encodeURIComponent(limit ?? 10)}`
+  },
+  [IPC_CHANNELS.ANALYTICS_EXPIRY_LOSS]: {
+    method: "GET",
+    dynamicPath: ({ days }) => `/api/local/analytics/expiry-loss?days=${encodeURIComponent(days ?? 30)}`
+  },
+  [IPC_CHANNELS.CLIENTS_LIST]: { method: "GET", path: "/api/local/clients" },
+  [IPC_CHANNELS.INVENTORY_LIST]: { method: "GET", path: "/api/local/inventory" },
+  [IPC_CHANNELS.INVENTORY_CREATE]: { method: "POST", path: "/api/local/inventory" },
+  [IPC_CHANNELS.INVENTORY_UPDATE]: { method: "PATCH", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}`, unwrapPayload: "payload" },
+  [IPC_CHANNELS.INVENTORY_ADJUST]: { method: "POST", dynamicPath: ({ batchId }) => `/api/local/inventory/${batchId}/adjust`, stripFields: ["batchId"] },
+  [IPC_CHANNELS.APPOINTMENTS_LIST]: { method: "GET", path: "/api/local/appointments" },
+  [IPC_CHANNELS.INVOICES_CREATE]: { method: "POST", path: "/api/local/invoices" },
+  [IPC_CHANNELS.APPOINTMENTS_CREATE]: { method: "POST", path: "/api/local/appointments" }
 });
 
 async function invokeLocalApi(channel, payload = null) {
@@ -124,7 +139,7 @@ function registerIpcHandlers() {
   for (const channel of Object.keys(routeMap)) {
     ipcMain.handle(channel, async (_event, payload) => invokeLocalApi(channel, payload));
   }
-  ipcMain.handle("receipt:print", async (_event, payload) => printReceipt(payload));
+  ipcMain.handle(IPC_CHANNELS.RECEIPT_PRINT, async (_event, payload) => printReceipt(payload));
 }
 
 async function bootDesktopServer() {

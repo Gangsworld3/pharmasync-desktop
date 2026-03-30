@@ -28,8 +28,8 @@ import {
 } from "./sync-retry-scheduler.js";
 import { transition } from "./sync-state-machine.js";
 import { mapConflict } from "./sync-conflict-adapter.js";
-import { pushPendingChanges as pushPendingChangesPipeline } from "./sync-push-service.js";
-import { pullServerChanges as pullServerChangesPipeline } from "./sync-pull-service.js";
+import { runPushOrchestrator } from "./sync-push/index.js";
+import { runPullOrchestrator } from "./sync-pull/index.js";
 import { runSyncCycle as runSyncCyclePipeline } from "./sync-cycle-runner.js";
 import { startLoop, stopLoop } from "./sync-loop.js";
 import { createApiClientPort, createClockPort, createOperationRepoPort } from "./ports/index.js";
@@ -518,7 +518,7 @@ function buildPushContext() {
 }
 
 export async function pushPendingChanges() {
-  const result = await pushPendingChangesPipeline(buildPushContext());
+  const result = await runPushOrchestrator(buildPushContext());
   return {
     ...result,
     resultSummary: buildSyncResultSummary(result.results ?? [])
@@ -552,7 +552,7 @@ function buildPullContext() {
 }
 
 export async function pullServerChanges() {
-  return pullServerChangesPipeline(buildPullContext());
+  return runPullOrchestrator(buildPullContext());
 }
 
 function buildCycleContext() {
