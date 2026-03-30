@@ -13,10 +13,21 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+class Tenant(SQLModel, table=True):
+    __tablename__ = "tenants"
+
+    id: str = Field(default="default", sa_column=Column(String(64), primary_key=True))
+    name: str = Field(sa_column=Column(String(255), nullable=False))
+    is_active: bool = Field(default=True, sa_column=Column(Boolean, nullable=False, server_default=text("true")))
+    created_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+    updated_at: datetime = Field(default_factory=utc_now, sa_column=Column(DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP")))
+
+
 class Client(SQLModel, table=True):
     __tablename__ = "clients"
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     client_code: str = Field(sa_column=Column(String(64), nullable=False, unique=True, index=True))
     full_name: str = Field(sa_column=Column(String(255), nullable=False))
     phone: Optional[str] = Field(default=None, sa_column=Column(String(64), nullable=True))
@@ -40,6 +51,7 @@ class InventoryItem(SQLModel, table=True):
     )
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     sku: str = Field(sa_column=Column(String(64), nullable=False, unique=True, index=True))
     name: str = Field(sa_column=Column(String(255), nullable=False))
     category: str = Field(sa_column=Column(String(120), nullable=False))
@@ -63,6 +75,7 @@ class Invoice(SQLModel, table=True):
     )
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     invoice_number: str = Field(sa_column=Column(String(64), nullable=False, unique=True, index=True))
     client_id: Optional[str] = Field(default=None, foreign_key="clients.id")
     currency_code: str = Field(default="SSP", sa_column=Column(String(8), nullable=False, server_default=text("'SSP'")))
@@ -86,6 +99,7 @@ class InvoiceLineItem(SQLModel, table=True):
     )
 
     id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     invoice_id: str = Field(foreign_key="invoices.id", index=True)
     inventory_item_id: str = Field(foreign_key="inventory_items.id", index=True)
     description: str = Field(sa_column=Column(String(255), nullable=False))
@@ -102,6 +116,7 @@ class Appointment(SQLModel, table=True):
     __tablename__ = "appointments"
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     client_id: str = Field(foreign_key="clients.id")
     service_type: str = Field(sa_column=Column(String(255), nullable=False))
     staff_name: Optional[str] = Field(default=None, sa_column=Column(String(255), nullable=True, index=True))
@@ -120,6 +135,7 @@ class Message(SQLModel, table=True):
     __tablename__ = "messages"
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     client_id: Optional[str] = Field(default=None, foreign_key="clients.id")
     channel: str = Field(default="SMS", sa_column=Column(String(32), nullable=False, server_default=text("'SMS'")))
     direction: str = Field(sa_column=Column(String(32), nullable=False))
@@ -137,6 +153,7 @@ class MessageEvent(SQLModel, table=True):
     __tablename__ = "message_events"
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     conversation_id: str = Field(sa_column=Column(String(64), nullable=False, index=True))
     sender_id: str = Field(sa_column=Column(String(64), nullable=False, index=True))
     content: str = Field(sa_column=Column(Text, nullable=False))
@@ -148,6 +165,7 @@ class User(SQLModel, table=True):
     __tablename__ = "users"
 
     id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     full_name: str = Field(sa_column=Column(String(255), nullable=False))
     email: str = Field(sa_column=Column(String(255), nullable=False, unique=True, index=True))
     password_hash: str = Field(sa_column=Column(String(255), nullable=False))
@@ -191,6 +209,7 @@ class SyncEvent(SQLModel, table=True):
     __tablename__ = "sync_events"
 
     server_revision: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=False))
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     entity: str = Field(sa_column=Column(String(64), nullable=False))
     operation: str = Field(sa_column=Column(String(32), nullable=False))
     entity_id: str = Field(sa_column=Column(String(64), nullable=False, index=True))
@@ -255,6 +274,7 @@ class ConflictQueue(SQLModel, table=True):
     __tablename__ = "conflict_queue"
 
     id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=64)
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     operation_id: str = Field(sa_column=Column(String(128), nullable=False, unique=True, index=True))
     entity_type: str = Field(sa_column=Column(String(64), nullable=False, index=True))
     entity_id: str = Field(sa_column=Column(String(64), nullable=False, index=True))
@@ -269,6 +289,7 @@ class AuditLog(SQLModel, table=True):
     __tablename__ = "audit_logs"
 
     id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, primary_key=True, autoincrement=True))
+    tenant_id: str = Field(default="default", sa_column=Column(String(64), nullable=False, index=True, server_default=text("'default'")))
     user_id: Optional[int] = Field(default=None, sa_column=Column(BigInteger, ForeignKey("users.id"), nullable=True))
     action: str = Field(sa_column=Column(String(128), nullable=False, index=True))
     table_name: str = Field(sa_column=Column(String(128), nullable=False, index=True))

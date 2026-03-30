@@ -23,11 +23,12 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hmac.compare_digest(candidate, digest)
 
 
-def create_access_token(subject: str, role: str) -> str:
+def create_access_token(subject: str, role: str, tenant_id: str = "default") -> str:
     now = datetime.now(UTC)
     payload = {
         "sub": subject,
         "role": role,
+        "tenant_id": tenant_id,
         "typ": "access",
         "iat": now,
         "exp": now + timedelta(minutes=settings.access_token_exp_minutes),
@@ -35,13 +36,14 @@ def create_access_token(subject: str, role: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
-def create_refresh_token(subject: str, role: str) -> tuple[str, str, datetime]:
+def create_refresh_token(subject: str, role: str, tenant_id: str = "default") -> tuple[str, str, datetime]:
     now = datetime.now(UTC)
     jti = uuid4().hex
     expires_at = now + timedelta(days=settings.refresh_token_exp_days)
     payload = {
         "sub": subject,
         "role": role,
+        "tenant_id": tenant_id,
         "jti": jti,
         "typ": "refresh",
         "iat": now,

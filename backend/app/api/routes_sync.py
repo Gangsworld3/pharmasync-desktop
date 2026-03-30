@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel
 
-from app.api.deps import SessionDep, get_current_user, require_role
+from app.api.deps import SessionDep, require_role
 from app.api.responses import success_response
 from app.core.security import decode_access_token
 from app.db.database import Session, engine
@@ -38,10 +38,10 @@ class SyncPushPayload(BaseModel):
 async def sync_push(
     payload: SyncPushPayload,
     session: SessionDep,
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_role("admin", "pharmacist", "cashier"))],
 ):
     try:
-        result = handle_sync_push(session, payload.model_dump())
+        result = handle_sync_push(session, payload.model_dump(), current_user=current_user)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if result["newRevision"] > payload.lastPulledRevision:
@@ -64,11 +64,11 @@ async def sync_push(
 def sync_pull(
     since: int,
     session: SessionDep,
-    _: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(require_role("admin", "pharmacist", "cashier"))],
     deviceId: str | None = None,
 ):
     try:
-        result = handle_sync_pull(session, since, device_id=deviceId)
+        result = handle_sync_pull(session, since, device_id=deviceId, current_user=current_user)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return success_response(
@@ -112,7 +112,7 @@ async def sync_websocket(websocket: WebSocket):
 @router.get("/audit/replay")
 def sync_audit_replay(
     session: SessionDep,
-    _: Annotated[User, Depends(require_role("admin"))],
+    current_user: Annotated[User, Depends(require_role("admin"))],
     since: int = 0,
     upto: int | None = None,
 ):
@@ -121,7 +121,12 @@ def sync_audit_replay(
     if upto is not None and upto < since:
         raise HTTPException(status_code=422, detail="upto must be >= since")
 
-    report = replay_sync_audit(session, since_revision=since, upto_revision=upto)
+    report = replay_sync_audit(
+        session,
+        since_revision=since,
+        upto_revision=upto,
+        tenant_id=current_user.tenant_id,
+    )
     signature = sign_sync_audit_report(report)
     return success_response(
         {
@@ -137,7 +142,7 @@ def sync_audit_replay(
 @router.get("/audit/export")
 def sync_audit_export(
     session: SessionDep,
-    _: Annotated[User, Depends(require_role("admin"))],
+    current_user: Annotated[User, Depends(require_role("admin"))],
     since: int = 0,
     upto: int | None = None,
     include_events: bool = True,
@@ -152,6 +157,7 @@ def sync_audit_export(
         since_revision=since,
         upto_revision=upto,
         include_events=include_events,
+        tenant_id=current_user.tenant_id,
     )
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     filename = f"sync-audit-snapshot-{timestamp}.json"

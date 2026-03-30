@@ -16,6 +16,7 @@ from app.db.repositories import (
     mark_deleted,
     touch_for_update,
 )
+from app.services.rbac_service import ensure_permission
 
 
 MODEL_MAP = {
@@ -26,13 +27,28 @@ MODEL_MAP = {
     "invoices": Invoice,
 }
 
+RESOURCE_MUTATE_PERMISSION = {
+    "clients": "clients:mutate",
+    "inventory": "inventory:mutate",
+    "appointments": "appointments:mutate",
+    "messages": "messages:mutate",
+}
 
-def list_entities(session: Session, resource: str) -> list[Any]:
-    return list_active(session, MODEL_MAP[resource])
+RESOURCE_DELETE_PERMISSION = {
+    "clients": "admin:manage",
+    "inventory": "admin:manage",
+    "appointments": "admin:manage",
+    "messages": "admin:manage",
+    "invoices": "admin:manage",
+}
 
 
-def get_entity(session: Session, resource: str, entity_id: str) -> Any:
-    entity = get_active_by_id(session, MODEL_MAP[resource], entity_id)
+def list_entities(session: Session, resource: str, tenant_id: str | None = None) -> list[Any]:
+    return list_active(session, MODEL_MAP[resource], tenant_id=tenant_id)
+
+
+def get_entity(session: Session, resource: str, entity_id: str, tenant_id: str | None = None) -> Any:
+    entity = get_active_by_id(session, MODEL_MAP[resource], entity_id, tenant_id=tenant_id)
     if not entity:
         raise ValueError(f"{resource[:-1].title()} not found.")
     return entity
@@ -44,8 +60,14 @@ def create_entity(
     entity: Any,
     device_id: str | None = None,
     actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    tenant_id: str | None = None,
 ) -> Any:
+    if actor_role is not None:
+        ensure_permission(RESOURCE_MUTATE_PERMISSION.get(resource, "admin:manage"), actor_role)
     try:
+        if hasattr(entity, "tenant_id"):
+            setattr(entity, "tenant_id", tenant_id or "default")
         session.add(entity)
         session.flush()
         event = append_sync_event(
@@ -56,6 +78,7 @@ def create_entity(
             payload=entity.model_dump(mode="json"),
             operation_id=str(uuid.uuid4()),
             device_id=device_id,
+            tenant_id=tenant_id or "default",
         )
         apply_server_revision(entity, event.server_revision or 0)
         session.add(entity)
@@ -65,6 +88,8 @@ def create_entity(
             table_name=entity.__class__.__tablename__,
             record_id=str(entity.id),
             user_id=actor_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id or "default",
             payload=entity.model_dump(mode="json"),
         )
         session.commit()
@@ -82,8 +107,12 @@ def update_entity(
     changes: dict[str, Any],
     device_id: str | None = None,
     actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    tenant_id: str | None = None,
 ) -> Any:
-    entity = get_entity(session, resource, entity_id)
+    if actor_role is not None:
+        ensure_permission(RESOURCE_MUTATE_PERMISSION.get(resource, "admin:manage"), actor_role)
+    entity = get_entity(session, resource, entity_id, tenant_id=tenant_id)
     try:
         for field, value in changes.items():
             setattr(entity, field, value)
@@ -96,6 +125,7 @@ def update_entity(
             payload=changes,
             operation_id=str(uuid.uuid4()),
             device_id=device_id,
+            tenant_id=tenant_id or "default",
         )
         apply_server_revision(entity, event.server_revision or 0)
         session.add(entity)
@@ -105,6 +135,8 @@ def update_entity(
             table_name=entity.__class__.__tablename__,
             record_id=str(entity.id),
             user_id=actor_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id or "default",
             payload=changes,
         )
         session.commit()
@@ -121,8 +153,12 @@ def delete_entity(
     entity_id: str,
     device_id: str | None = None,
     actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    tenant_id: str | None = None,
 ) -> Any:
-    entity = mark_deleted(get_entity(session, resource, entity_id))
+    if actor_role is not None:
+        ensure_permission(RESOURCE_DELETE_PERMISSION.get(resource, "admin:manage"), actor_role)
+    entity = mark_deleted(get_entity(session, resource, entity_id, tenant_id=tenant_id))
     try:
         event = append_sync_event(
             session,
@@ -132,6 +168,7 @@ def delete_entity(
             payload={"deleted_at": str(entity.deleted_at)},
             operation_id=str(uuid.uuid4()),
             device_id=device_id,
+            tenant_id=tenant_id or "default",
         )
         apply_server_revision(entity, event.server_revision or 0)
         session.add(entity)
@@ -141,6 +178,8 @@ def delete_entity(
             table_name=entity.__class__.__tablename__,
             record_id=str(entity.id),
             user_id=actor_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id or "default",
             payload={"deleted_at": str(entity.deleted_at)},
         )
         session.commit()

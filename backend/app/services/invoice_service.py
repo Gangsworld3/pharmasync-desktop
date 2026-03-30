@@ -17,6 +17,7 @@ from app.db.repositories import (
     touch_for_update,
     utc_now,
 )
+from app.services.rbac_service import ensure_permission
 
 
 @dataclass
@@ -41,8 +42,12 @@ def create_invoice(
     device_id: str | None = None,
     operation_id: str | None = None,
     actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    tenant_id: str | None = None,
     auto_commit: bool = True,
 ) -> Invoice:
+    if actor_role is not None:
+        ensure_permission("invoices:create", actor_role)
     if not items:
         raise ValueError("Invoice requires at least one line item.")
 
@@ -51,7 +56,7 @@ def create_invoice(
         total = 0
 
         for item_input in items:
-            inventory = get_inventory_by_sku_for_update(session, item_input.inventory_sku)
+            inventory = get_inventory_by_sku_for_update(session, item_input.inventory_sku, tenant_id=tenant_id)
             if not inventory:
                 raise ValueError(f"Inventory SKU {item_input.inventory_sku} not found.")
 
@@ -61,6 +66,7 @@ def create_invoice(
             total += line_total
             line_items.append(
                 InvoiceLineItem(
+                    tenant_id=tenant_id or "default",
                     invoice_id="pending",
                     inventory_item_id=inventory.id,
                     description=item_input.description or inventory.name,
@@ -72,6 +78,7 @@ def create_invoice(
             session.add(inventory)
 
         invoice.total_minor = total
+        invoice.tenant_id = tenant_id or "default"
         invoice.balance_due_minor = total
         invoice.status = invoice.status or "ISSUED"
         invoice.issued_at = utc_now()
@@ -99,6 +106,7 @@ def create_invoice(
             },
             operation_id=operation_id or str(uuid.uuid4()),
             device_id=device_id,
+            tenant_id=tenant_id or "default",
         )
         apply_server_revision(invoice, invoice_event.server_revision or 0)
         session.add(invoice)
@@ -112,8 +120,9 @@ def create_invoice(
                 payload={"invoice_id": invoice.id, "quantity": line_item.quantity},
                 operation_id=str(uuid.uuid4()),
                 device_id=device_id,
+                tenant_id=tenant_id or "default",
             )
-            inventory = get_active_by_id(session, InventoryItem, line_item.inventory_item_id)
+            inventory = get_active_by_id(session, InventoryItem, line_item.inventory_item_id, tenant_id=tenant_id)
             if inventory:
                 apply_server_revision(inventory, inventory_event.server_revision or 0)
                 session.add(inventory)
@@ -124,6 +133,8 @@ def create_invoice(
             table_name="invoices",
             record_id=str(invoice.id),
             user_id=actor_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id or "default",
             payload={
                 "invoice_number": invoice.invoice_number,
                 "total_minor": invoice.total_minor,
@@ -147,8 +158,8 @@ def create_invoice(
         raise
 
 
-def get_invoice_detail(session: Session, invoice_id: str) -> dict:
-    invoice = get_active_by_id(session, Invoice, invoice_id)
+def get_invoice_detail(session: Session, invoice_id: str, tenant_id: str | None = None) -> dict:
+    invoice = get_active_by_id(session, Invoice, invoice_id, tenant_id=tenant_id)
     if not invoice:
         raise ValueError("Invoice not found.")
-    return {"invoice": invoice, "items": list_invoice_items(session, invoice_id)}
+    return {"invoice": invoice, "items": list_invoice_items(session, invoice_id, tenant_id=tenant_id)}

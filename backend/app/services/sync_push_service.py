@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
 from app.core.config import settings
-from app.db.models import Client, Invoice, MessageEvent
+from app.db.models import Client, Invoice, MessageEvent, User
 from app.db.repositories import (
     SYNC_ENTITY_MODELS,
     advance_device_cursor,
@@ -212,6 +212,7 @@ def _apply_client_crdt_merge(
     fallback_clock: int,
     device_id: str,
     operation_id: str,
+    tenant_id: str,
 ) -> tuple[int, dict[str, Any], list[str]]:
     if not changed_fields:
         changed_fields = list(incoming.keys())
@@ -254,6 +255,7 @@ def _apply_client_crdt_merge(
         },
         operation_id=operation_id,
         device_id=device_id,
+        tenant_id=tenant_id,
         resolution_type="CRDT_MERGED",
         resolved=True,
     )
@@ -272,6 +274,7 @@ def _apply_inventory_crdt_merge(
     fallback_clock: int,
     device_id: str,
     operation_id: str,
+    tenant_id: str,
 ) -> tuple[int, dict[str, Any], list[str]]:
     if not changed_fields:
         changed_fields = list(incoming.keys())
@@ -314,6 +317,7 @@ def _apply_inventory_crdt_merge(
         },
         operation_id=operation_id,
         device_id=device_id,
+        tenant_id=tenant_id,
         resolution_type="CRDT_MERGED",
         resolved=True,
     )
@@ -332,6 +336,7 @@ def _apply_appointment_crdt_merge(
     fallback_clock: int,
     device_id: str,
     operation_id: str,
+    tenant_id: str,
 ) -> tuple[int, dict[str, Any], list[str]]:
     if not changed_fields:
         changed_fields = list(incoming.keys())
@@ -374,6 +379,7 @@ def _apply_appointment_crdt_merge(
         },
         operation_id=operation_id,
         device_id=device_id,
+        tenant_id=tenant_id,
         resolution_type="CRDT_MERGED",
         resolved=True,
     )
@@ -383,7 +389,12 @@ def _apply_appointment_crdt_merge(
 
 
 def _appointment_suggestions(
-    session: Session, staff_name: str, starts_at: datetime, ends_at: datetime, limit: int = 3
+    session: Session,
+    staff_name: str,
+    starts_at: datetime,
+    ends_at: datetime,
+    limit: int = 3,
+    tenant_id: str | None = None,
 ) -> list[dict[str, str]]:
     zone = _configured_appointment_zone()
     step_minutes = _slot_step_minutes()
@@ -420,7 +431,13 @@ def _appointment_suggestions(
         candidate_end_local = candidate_local + duration
         candidate_start_utc = candidate_local.astimezone(UTC)
         candidate_end_utc = candidate_end_local.astimezone(UTC)
-        overlap = find_appointment_conflict(session, staff_name, candidate_start_utc, candidate_end_utc)
+        overlap = find_appointment_conflict(
+            session,
+            staff_name,
+            candidate_start_utc,
+            candidate_end_utc,
+            tenant_id=tenant_id,
+        )
         if not overlap:
             suggestions.append(
                 {
@@ -458,6 +475,7 @@ def _apply_generic_change(
     payload: dict[str, Any],
     existing: Any | None,
     device_id: str,
+    tenant_id: str,
 ) -> tuple[Any, int]:
     entity_name = change["entity"]
     model = SYNC_ENTITY_MODELS[entity_name]
@@ -466,6 +484,8 @@ def _apply_generic_change(
 
     if operation == "CREATE" and not existing:
         record = model(id=entity_id, **payload)
+        if hasattr(record, "tenant_id"):
+            record.tenant_id = tenant_id
         session.add(record)
         session.flush()
     elif operation in {"UPDATE", "CREATE"} and existing:
@@ -477,6 +497,8 @@ def _apply_generic_change(
         record = mark_deleted(existing)
     else:
         record = model(id=entity_id, **payload)
+        if hasattr(record, "tenant_id"):
+            record.tenant_id = tenant_id
         session.add(record)
         session.flush()
 
@@ -488,6 +510,7 @@ def _apply_generic_change(
         payload=payload if operation != "DELETE" else {"deleted_at": str(record.deleted_at)},
         operation_id=change["operationId"] or str(uuid.uuid4()),
         device_id=device_id,
+        tenant_id=tenant_id,
     )
     apply_server_revision(record, event.server_revision or 0)
     session.add(record)
@@ -532,6 +555,7 @@ def _enqueue_and_append_conflict(
     entity_id: str,
     conflict_type: str,
     payload: dict[str, Any],
+    tenant_id: str,
     resolution: str = "REQUIRES_USER_ACTION",
     result_status: str = "CONFLICT",
 ) -> None:
@@ -542,6 +566,7 @@ def _enqueue_and_append_conflict(
         entity_id=entity_id,
         conflict_type=conflict_type,
         payload=payload,
+        tenant_id=tenant_id,
     )
     conflicts.append(payload)
     results.append(
@@ -572,6 +597,7 @@ def _apply_stale_write_policy(
     crdt_changed_fields: list[str],
     crdt_field_clocks: dict[str, int],
     device_id: str,
+    tenant_id: str,
 ) -> bool:
     if not existing or local_revision >= existing.server_revision:
         return False
@@ -599,6 +625,7 @@ def _apply_stale_write_policy(
                 entity_id=entity_id,
                 conflict_type="INVENTORY_STRICT_FIELD_CONFLICT",
                 payload=conflict,
+                tenant_id=tenant_id,
             )
             return True
 
@@ -611,6 +638,7 @@ def _apply_stale_write_policy(
             fallback_clock=local_revision,
             device_id=device_id,
             operation_id=operation_id,
+            tenant_id=tenant_id,
         )
         _append_applied_result(
             applied=applied,
@@ -647,6 +675,7 @@ def _apply_stale_write_policy(
                     staff_name,
                     starts_at,
                     ends_at,
+                    tenant_id=tenant_id,
                 )
                 conflict["serverSuggestedNextSlots"] = suggestions
                 conflict["suggestedResolution"] = "RESCHEDULE"
@@ -666,6 +695,7 @@ def _apply_stale_write_policy(
                 entity_id=entity_id,
                 conflict_type="APPOINTMENT_SCHEDULE_CONFLICT",
                 payload=conflict,
+                tenant_id=tenant_id,
             )
             return True
 
@@ -678,6 +708,7 @@ def _apply_stale_write_policy(
             fallback_clock=local_revision,
             device_id=device_id,
             operation_id=operation_id,
+            tenant_id=tenant_id,
         )
         _append_applied_result(
             applied=applied,
@@ -705,6 +736,7 @@ def _apply_stale_write_policy(
             entity_id=entity_id,
             conflict_type="STALE_WRITE",
             payload=conflict,
+            tenant_id=tenant_id,
         )
         return True
 
@@ -721,11 +753,12 @@ def _apply_stale_write_policy(
         entity_id=entity_id,
         conflict_type="CONFLICT",
         payload=conflict,
+        tenant_id=tenant_id,
     )
     return True
 
 
-def _is_replay_only_push(session: Session, payload: dict[str, Any]) -> bool:
+def _is_replay_only_push(session: Session, payload: dict[str, Any], tenant_id: str) -> bool:
     changes = payload.get("changes", [])
     if not changes:
         return False
@@ -734,9 +767,9 @@ def _is_replay_only_push(session: Session, payload: dict[str, Any]) -> bool:
         operation_id = change.get("operationId")
         if not operation_id:
             return False
-        if get_sync_event_by_operation_id(session, operation_id):
+        if get_sync_event_by_operation_id(session, operation_id, tenant_id=tenant_id):
             continue
-        if get_conflict_by_operation_id(session, operation_id):
+        if get_conflict_by_operation_id(session, operation_id, tenant_id=tenant_id):
             continue
         return False
 
@@ -750,13 +783,18 @@ def _is_create_only_push(payload: dict[str, Any]) -> bool:
     return all(str(change.get("operation", "")).upper() == "CREATE" for change in changes)
 
 
-def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any]:
+def handle_sync_push(
+    session: Session,
+    payload: dict[str, Any],
+    current_user: User | None = None,
+) -> dict[str, Any]:
     applied: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
     device_id = payload["deviceId"]
-    previous_revision = latest_server_revision(session)
-    replay_only_push = _is_replay_only_push(session, payload)
+    tenant_id = current_user.tenant_id if current_user else "default"
+    previous_revision = latest_server_revision(session, tenant_id=tenant_id)
+    replay_only_push = _is_replay_only_push(session, payload, tenant_id)
     create_only_push = _is_create_only_push(payload)
     try:
         ensure_monotonic_device_cursor(
@@ -766,7 +804,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
             direction="push",
         )
     except ValueError:
-        if not (create_only_push or replay_only_push or _is_replay_only_push(session, payload)):
+        if not (create_only_push or replay_only_push or _is_replay_only_push(session, payload, tenant_id)):
             raise
 
     for change in payload["changes"]:
@@ -779,7 +817,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
         data = _filtered_payload(entity_name, change.get("data", {}))
         crdt_changed_fields, crdt_field_clocks = _parse_crdt_meta(change)
 
-        duplicate = get_sync_event_by_operation_id(session, operation_id)
+        duplicate = get_sync_event_by_operation_id(session, operation_id, tenant_id=tenant_id)
         if duplicate:
             results.append(
                 {
@@ -792,7 +830,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
             )
             continue
 
-        existing_conflict = get_conflict_by_operation_id(session, operation_id)
+        existing_conflict = get_conflict_by_operation_id(session, operation_id, tenant_id=tenant_id)
         if existing_conflict:
             payload_json = json.loads(existing_conflict.payload_json)
             conflicts.append(payload_json)
@@ -809,7 +847,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
 
         try:
             with session.begin_nested():
-                existing = get_active_by_id(session, SYNC_ENTITY_MODELS[entity_name], entity_id)
+                existing = get_active_by_id(session, SYNC_ENTITY_MODELS[entity_name], entity_id, tenant_id=tenant_id)
 
                 if entity_name == "Client" and operation in {"UPDATE", "CREATE"} and existing:
                     server_revision, merged_fields, skipped_fields = _apply_client_crdt_merge(
@@ -821,6 +859,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                         fallback_clock=local_revision,
                         device_id=device_id,
                         operation_id=operation_id,
+                        tenant_id=tenant_id,
                     )
                     has_explicit_crdt = bool(crdt_changed_fields) or bool(crdt_field_clocks)
                     resolution = (
@@ -869,6 +908,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                     crdt_changed_fields=crdt_changed_fields,
                     crdt_field_clocks=crdt_field_clocks,
                     device_id=device_id,
+                    tenant_id=tenant_id,
                 )
                 if stale_policy_handled:
                     continue
@@ -880,6 +920,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                         data["starts_at"],
                         data["ends_at"],
                         exclude_id=entity_id if existing else None,
+                        tenant_id=tenant_id,
                     )
                     if overlap:
                         conflict = _conflict_payload(
@@ -894,6 +935,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                             data["staff_name"],
                             data["starts_at"],
                             data["ends_at"],
+                            tenant_id=tenant_id,
                         )
                         conflict["timezone"] = settings.appointment_timezone
                         conflict["serverSuggestedNextSlots"] = suggestions
@@ -911,6 +953,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                             entity_id=entity_id,
                             conflict_type="APPOINTMENT_OVERLAP",
                             payload=conflict,
+                            tenant_id=tenant_id,
                         )
                         conflicts.append(conflict)
                         results.append(
@@ -941,6 +984,9 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                         _parse_invoice_items(data),
                         device_id=device_id,
                         operation_id=operation_id,
+                        actor_user_id=current_user.id if current_user else None,
+                        actor_role=current_user.role if current_user else None,
+                        tenant_id=tenant_id,
                         auto_commit=False,
                     )
                     applied.append({"entity": entity_name, "entityId": entity_id, "serverRevision": invoice.server_revision})
@@ -950,6 +996,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                 if entity_name == "Message" and operation == "CREATE":
                     message = MessageEvent(
                         id=entity_id,
+                        tenant_id=tenant_id,
                         conversation_id=data["conversation_id"],
                         sender_id=data["sender_id"],
                         content=data["content"],
@@ -965,6 +1012,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                         payload=message.model_dump(mode="json"),
                         operation_id=operation_id,
                         device_id=device_id,
+                        tenant_id=tenant_id,
                     )
                     apply_server_revision(message, event.server_revision or 0)
                     session.add(message)
@@ -985,9 +1033,10 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                         operation_id=operation_id,
                         entity_type=entity_name,
                         entity_id=entity_id,
-                        conflict_type="INSUFFICIENT_STOCK",
-                        payload=conflict,
-                    )
+                            conflict_type="INSUFFICIENT_STOCK",
+                            payload=conflict,
+                            tenant_id=tenant_id,
+                        )
                     conflicts.append(conflict)
                     results.append(
                         {
@@ -1000,7 +1049,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                     )
                     continue
 
-                record, server_revision = _apply_generic_change(session, change, data, existing, device_id)
+                record, server_revision = _apply_generic_change(session, change, data, existing, device_id, tenant_id)
                 applied.append({"entity": entity_name, "entityId": entity_id, "serverRevision": server_revision})
                 results.append({"operationId": operation_id, "entity": entity_name, "entityId": entity_id, "status": "APPLIED"})
         except ValueError as exc:
@@ -1014,6 +1063,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
                     entity_id=entity_id,
                     conflict_type=conflict_type,
                     payload=conflict_payload,
+                    tenant_id=tenant_id,
                 )
             conflicts.append(conflict_payload)
             results.append(
@@ -1028,7 +1078,7 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
             )
         except IntegrityError:
             session.rollback()
-            existing = get_sync_event_by_operation_id(session, operation_id)
+            existing = get_sync_event_by_operation_id(session, operation_id, tenant_id=tenant_id)
             if existing:
                 results.append(
                     {
@@ -1055,7 +1105,11 @@ def handle_sync_push(session: Session, payload: dict[str, Any]) -> dict[str, Any
             "resolutionType": event.resolution_type,
             "resolved": event.resolved,
         }
-        for event in list_sync_events_since(session, payload.get("lastPulledRevision", 0))
+        for event in list_sync_events_since(
+            session,
+            payload.get("lastPulledRevision", 0),
+            tenant_id=tenant_id,
+        )
     ]
     new_revision = server_changes[-1]["serverRevision"] if server_changes else payload.get("lastPulledRevision", 0)
     advance_device_cursor(

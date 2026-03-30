@@ -17,15 +17,22 @@ class MessagePayload(BaseModel):
 
 
 @router.get("")
-def list_messages(session: SessionDep):
-    messages = list_entities(session, "messages")
+def list_messages(
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist")),
+):
+    messages = list_entities(session, "messages", tenant_id=current_user.tenant_id)
     return success_response(messages, meta={"count": len(messages)})
 
 
 @router.get("/{message_id}")
-def get_message(message_id: str, session: SessionDep):
+def get_message(
+    message_id: str,
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist")),
+):
     try:
-        return success_response(get_entity(session, "messages", message_id))
+        return success_response(get_entity(session, "messages", message_id, tenant_id=current_user.tenant_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -42,6 +49,8 @@ def create_message(
             "messages",
             MessageEvent(**payload.model_dump()),
             actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
         ),
         status_code=201,
     )

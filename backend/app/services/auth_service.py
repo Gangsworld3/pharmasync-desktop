@@ -32,6 +32,8 @@ from app.services.background_dispatcher import dispatcher
 class AuthTokens:
     access_token: str
     refresh_token: str
+    role: str
+    tenant_id: str
     token_type: str = "bearer"
 
 
@@ -53,8 +55,8 @@ def ensure_default_admin(session: Session) -> None:
 
 
 def _issue_token_pair(session: Session, user: User) -> AuthTokens:
-    access_token = create_access_token(str(user.id), user.role)
-    refresh_token, jti, expires_at = create_refresh_token(str(user.id), user.role)
+    access_token = create_access_token(str(user.id), user.role, tenant_id=user.tenant_id)
+    refresh_token, jti, expires_at = create_refresh_token(str(user.id), user.role, tenant_id=user.tenant_id)
     create_refresh_token_record(
         session,
         user_id=user.id or 0,
@@ -62,7 +64,12 @@ def _issue_token_pair(session: Session, user: User) -> AuthTokens:
         jti=jti,
         expires_at=expires_at,
     )
-    return AuthTokens(access_token=access_token, refresh_token=refresh_token)
+    return AuthTokens(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        role=user.role,
+        tenant_id=user.tenant_id,
+    )
 
 
 def authenticate(session: Session, email: str, password: str) -> AuthTokens:
@@ -77,6 +84,8 @@ def authenticate(session: Session, email: str, password: str) -> AuthTokens:
             table_name="users",
             record_id=str(user.id),
             user_id=user.id,
+            actor_role=user.role,
+            tenant_id=user.tenant_id,
             payload={"email": user.email},
         )
         session.commit()
@@ -94,6 +103,7 @@ def refresh_access_token(session: Session, refresh_token: str) -> AuthTokens:
     if not token_record:
         raise ValueError("Invalid refresh token.")
     if token_record.revoked_at is not None:
+        compromised_user = get_active_by_id(session, User, token_record.user_id)
         revoked_count = revoke_all_refresh_tokens_for_user(session, token_record.user_id)
         append_audit_log(
             session,
@@ -101,6 +111,8 @@ def refresh_access_token(session: Session, refresh_token: str) -> AuthTokens:
             table_name="users",
             record_id=str(token_record.user_id),
             user_id=token_record.user_id,
+            actor_role=compromised_user.role if compromised_user else None,
+            tenant_id=compromised_user.tenant_id if compromised_user else "default",
             payload={"revoked_sessions": revoked_count},
         )
         session.commit()
@@ -117,6 +129,7 @@ def refresh_access_token(session: Session, refresh_token: str) -> AuthTokens:
     if token_record.expires_at <= datetime.now(UTC):
         raise ValueError("Refresh token has expired.")
     if token_record.jti != payload.get("jti"):
+        compromised_user = get_active_by_id(session, User, token_record.user_id)
         revoked_count = revoke_all_refresh_tokens_for_user(session, token_record.user_id)
         append_audit_log(
             session,
@@ -124,6 +137,8 @@ def refresh_access_token(session: Session, refresh_token: str) -> AuthTokens:
             table_name="users",
             record_id=str(token_record.user_id),
             user_id=token_record.user_id,
+            actor_role=compromised_user.role if compromised_user else None,
+            tenant_id=compromised_user.tenant_id if compromised_user else "default",
             payload={"reason": "jti_mismatch", "revoked_sessions": revoked_count},
         )
         session.commit()
@@ -156,6 +171,8 @@ def refresh_access_token(session: Session, refresh_token: str) -> AuthTokens:
             table_name="users",
             record_id=str(user.id),
             user_id=user.id,
+            actor_role=user.role,
+            tenant_id=user.tenant_id,
             payload={"rotated": True},
         )
         session.commit()

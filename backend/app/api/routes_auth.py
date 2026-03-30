@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.api.responses import success_response
-from app.api.deps import SessionDep
+from app.api.deps import SessionDep, get_current_user
 from app.core.config import settings
 from app.core.rate_limiter import rate_limiter
+from app.db.models import User
 from app.services.auth_service import authenticate, refresh_access_token
 
 
@@ -41,6 +42,8 @@ def login(payload: LoginRequest, request: Request, session: SessionDep):
         {
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
+            "role": tokens.role,
+            "tenant_id": tokens.tenant_id,
             "token_type": tokens.token_type,
         }
     )
@@ -67,6 +70,21 @@ def refresh(payload: RefreshRequest, request: Request, session: SessionDep):
         {
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
+            "role": tokens.role,
+            "tenant_id": tokens.tenant_id,
             "token_type": tokens.token_type,
+        }
+    )
+
+
+@router.get("/me")
+def auth_me(current_user: User = Depends(get_current_user)):
+    return success_response(
+        {
+            "id": current_user.id,
+            "email": current_user.email,
+            "role": current_user.role,
+            "tenant_id": current_user.tenant_id,
+            "is_active": current_user.is_active,
         }
     )

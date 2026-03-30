@@ -26,15 +26,22 @@ class InventoryPayload(BaseModel):
 
 
 @router.get("")
-def list_inventory(session: SessionDep):
-    inventory = list_entities(session, "inventory")
+def list_inventory(
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist", "cashier")),
+):
+    inventory = list_entities(session, "inventory", tenant_id=current_user.tenant_id)
     return success_response(inventory, meta={"count": len(inventory)})
 
 
 @router.get("/{item_id}")
-def get_inventory_item(item_id: str, session: SessionDep):
+def get_inventory_item(
+    item_id: str,
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist", "cashier")),
+):
     try:
-        return success_response(get_entity(session, "inventory", item_id))
+        return success_response(get_entity(session, "inventory", item_id, tenant_id=current_user.tenant_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -51,6 +58,8 @@ def create_inventory_item(
             "inventory",
             InventoryItem(**payload.model_dump()),
             actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
         ),
         status_code=201,
     )
@@ -71,6 +80,8 @@ def update_inventory_item(
                 item_id,
                 payload.model_dump(),
                 actor_user_id=current_user.id,
+                actor_role=current_user.role,
+                tenant_id=current_user.tenant_id,
             )
         )
     except ValueError as exc:
@@ -84,6 +95,15 @@ def delete_inventory_item(
     current_user: User = Depends(require_role("admin")),
 ):
     try:
-        return success_response(delete_entity(session, "inventory", item_id, actor_user_id=current_user.id))
+        return success_response(
+            delete_entity(
+                session,
+                "inventory",
+                item_id,
+                actor_user_id=current_user.id,
+                actor_role=current_user.role,
+                tenant_id=current_user.tenant_id,
+            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

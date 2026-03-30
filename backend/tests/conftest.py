@@ -91,6 +91,7 @@ def db_session():
         "inventory_items",
         "clients",
         "sync_events",
+        "tenants",
         "users",
     ]
     truncate_sql = ", ".join(table_names)
@@ -99,6 +100,13 @@ def db_session():
         session.exec(text(f"TRUNCATE TABLE {truncate_sql} RESTART IDENTITY CASCADE"))
         session.exec(text("DELETE FROM server_state"))
         session.exec(text("INSERT INTO server_state (scope, current_revision) VALUES ('global', 0)"))
+        session.exec(
+            text(
+                "INSERT INTO tenants (id, name, is_active) "
+                "VALUES ('default', 'Default Tenant', true) "
+                "ON CONFLICT (id) DO NOTHING"
+            )
+        )
         session.commit()
         ensure_default_admin(session)
 

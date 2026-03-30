@@ -24,6 +24,7 @@ from app.db.models import (
     ServerState,
     SyncEvent,
     SyncEventAudit,
+    Tenant,
     User,
 )
 
@@ -43,6 +44,12 @@ SYNC_ENTITY_MODELS: dict[str, Type[Any]] = {
     "Message": MessageEvent,
     "Invoice": Invoice,
 }
+
+
+def _scope_by_tenant(query: Any, model: Type[Any], tenant_id: str | None) -> Any:
+    if tenant_id and hasattr(model, "tenant_id"):
+        return query.where(model.tenant_id == tenant_id)
+    return query
 
 
 def utc_now() -> datetime:
@@ -82,8 +89,9 @@ def _compute_event_hash(
     return _hash_hex(canonical)
 
 
-def list_active(session: Session, model: Type[Any]) -> list[Any]:
+def list_active(session: Session, model: Type[Any], tenant_id: str | None = None) -> list[Any]:
     query = select(model)
+    query = _scope_by_tenant(query, model, tenant_id)
     if hasattr(model, "deleted_at"):
         query = query.where(model.deleted_at.is_(None))
     if hasattr(model, "server_revision"):
@@ -93,44 +101,58 @@ def list_active(session: Session, model: Type[Any]) -> list[Any]:
     return list(session.exec(query))
 
 
-def get_active_by_id(session: Session, model: Type[Any], entity_id: Any) -> Any | None:
+def get_active_by_id(session: Session, model: Type[Any], entity_id: Any, tenant_id: str | None = None) -> Any | None:
     query = select(model).where(model.id == entity_id)
+    query = _scope_by_tenant(query, model, tenant_id)
     if hasattr(model, "deleted_at"):
         query = query.where(model.deleted_at.is_(None))
     return session.exec(query).first()
 
 
-def get_user_by_email(session: Session, email: str) -> User | None:
-    return session.exec(select(User).where(User.email == email).where(User.deleted_at.is_(None))).first()
+def get_user_by_email(session: Session, email: str, tenant_id: str | None = None) -> User | None:
+    query = select(User).where(User.email == email).where(User.deleted_at.is_(None))
+    if tenant_id:
+        query = query.where(User.tenant_id == tenant_id)
+    return session.exec(query).first()
 
 
-def get_inventory_by_sku(session: Session, sku: str) -> InventoryItem | None:
-    return session.exec(
-        select(InventoryItem).where(InventoryItem.sku == sku).where(InventoryItem.deleted_at.is_(None))
-    ).first()
+def get_inventory_by_sku(session: Session, sku: str, tenant_id: str | None = None) -> InventoryItem | None:
+    query = select(InventoryItem).where(InventoryItem.sku == sku).where(InventoryItem.deleted_at.is_(None))
+    if tenant_id:
+        query = query.where(InventoryItem.tenant_id == tenant_id)
+    return session.exec(query).first()
 
 
-def get_inventory_by_sku_for_update(session: Session, sku: str) -> InventoryItem | None:
-    return session.exec(
+def get_inventory_by_sku_for_update(session: Session, sku: str, tenant_id: str | None = None) -> InventoryItem | None:
+    query = (
         select(InventoryItem)
         .where(InventoryItem.sku == sku)
         .where(InventoryItem.deleted_at.is_(None))
         .with_for_update()
-    ).first()
-
-
-def list_invoice_items(session: Session, invoice_id: str) -> list[InvoiceLineItem]:
-    return list(
-        session.exec(
-            select(InvoiceLineItem)
-            .where(InvoiceLineItem.invoice_id == invoice_id)
-            .where(InvoiceLineItem.deleted_at.is_(None))
-        )
     )
+    if tenant_id:
+        query = query.where(InventoryItem.tenant_id == tenant_id)
+    return session.exec(query).first()
+
+
+def list_invoice_items(session: Session, invoice_id: str, tenant_id: str | None = None) -> list[InvoiceLineItem]:
+    query = (
+        select(InvoiceLineItem)
+        .where(InvoiceLineItem.invoice_id == invoice_id)
+        .where(InvoiceLineItem.deleted_at.is_(None))
+    )
+    if tenant_id:
+        query = query.where(InvoiceLineItem.tenant_id == tenant_id)
+    return list(session.exec(query))
 
 
 def find_appointment_conflict(
-    session: Session, staff_name: str, starts_at: datetime, ends_at: datetime, exclude_id: str | None = None
+    session: Session,
+    staff_name: str,
+    starts_at: datetime,
+    ends_at: datetime,
+    exclude_id: str | None = None,
+    tenant_id: str | None = None,
 ) -> Appointment | None:
     query = (
         select(Appointment)
@@ -142,6 +164,8 @@ def find_appointment_conflict(
     )
     if exclude_id:
         query = query.where(Appointment.id != exclude_id)
+    if tenant_id:
+        query = query.where(Appointment.tenant_id == tenant_id)
     return session.exec(query).first()
 
 
@@ -165,6 +189,7 @@ def append_sync_event(
     payload: dict[str, Any],
     operation_id: str,
     device_id: str | None = None,
+    tenant_id: str = "default",
     resolution_type: str | None = None,
     resolved: bool = False,
 ) -> SyncEvent:
@@ -179,6 +204,7 @@ def append_sync_event(
     canonical_payload = _canonical_json(payload)
     event = SyncEvent(
         server_revision=state.current_revision,
+        tenant_id=tenant_id,
         entity=entity,
         operation=operation,
         entity_id=entity_id,
@@ -223,8 +249,15 @@ def append_sync_event(
     return event
 
 
-def get_sync_event_by_operation_id(session: Session, operation_id: str) -> SyncEvent | None:
-    return session.exec(select(SyncEvent).where(SyncEvent.operation_id == operation_id)).first()
+def get_sync_event_by_operation_id(
+    session: Session,
+    operation_id: str,
+    tenant_id: str | None = None,
+) -> SyncEvent | None:
+    query = select(SyncEvent).where(SyncEvent.operation_id == operation_id)
+    if tenant_id:
+        query = query.where(SyncEvent.tenant_id == tenant_id)
+    return session.exec(query).first()
 
 
 def apply_server_revision(entity: Any, server_revision: int) -> Any:
@@ -234,8 +267,12 @@ def apply_server_revision(entity: Any, server_revision: int) -> Any:
     return entity
 
 
-def latest_server_revision(session: Session) -> int:
-    event = session.exec(select(SyncEvent).order_by(SyncEvent.server_revision.desc())).first()
+def latest_server_revision(session: Session, tenant_id: str | None = None) -> int:
+    query = select(SyncEvent)
+    if tenant_id:
+        query = query.where(SyncEvent.tenant_id == tenant_id)
+    query = query.order_by(SyncEvent.server_revision.desc())
+    event = session.exec(query).first()
     return event.server_revision if event and event.server_revision else 0
 
 
@@ -343,22 +380,35 @@ def claim_entity_field_clock(
     return result is not None
 
 
-def list_sync_events_since(session: Session, since: int) -> list[SyncEvent]:
-    return list(session.exec(select(SyncEvent).where(SyncEvent.server_revision > since).order_by(SyncEvent.server_revision)))
+def list_sync_events_since(session: Session, since: int, tenant_id: str | None = None) -> list[SyncEvent]:
+    query = select(SyncEvent).where(SyncEvent.server_revision > since)
+    if tenant_id:
+        query = query.where(SyncEvent.tenant_id == tenant_id)
+    query = query.order_by(SyncEvent.server_revision)
+    return list(session.exec(query))
 
 
-def list_sync_event_audit_since(session: Session, since: int) -> list[SyncEventAudit]:
-    return list(
-        session.exec(
-            select(SyncEventAudit)
-            .where(SyncEventAudit.server_revision > since)
-            .order_by(SyncEventAudit.server_revision)
-        )
+def list_sync_event_audit_since(session: Session, since: int, tenant_id: str | None = None) -> list[SyncEventAudit]:
+    query = (
+        select(SyncEventAudit)
+        .join(SyncEvent, SyncEvent.server_revision == SyncEventAudit.server_revision)
+        .where(SyncEventAudit.server_revision > since)
     )
+    if tenant_id:
+        query = query.where(SyncEvent.tenant_id == tenant_id)
+    query = query.order_by(SyncEventAudit.server_revision)
+    return list(session.exec(query))
 
 
-def get_conflict_by_operation_id(session: Session, operation_id: str) -> ConflictQueue | None:
-    return session.exec(select(ConflictQueue).where(ConflictQueue.operation_id == operation_id)).first()
+def get_conflict_by_operation_id(
+    session: Session,
+    operation_id: str,
+    tenant_id: str | None = None,
+) -> ConflictQueue | None:
+    query = select(ConflictQueue).where(ConflictQueue.operation_id == operation_id)
+    if tenant_id:
+        query = query.where(ConflictQueue.tenant_id == tenant_id)
+    return session.exec(query).first()
 
 
 def enqueue_conflict(
@@ -369,13 +419,15 @@ def enqueue_conflict(
     entity_id: str,
     conflict_type: str,
     payload: dict[str, Any],
+    tenant_id: str = "default",
     requires_user_action: bool = True,
 ) -> ConflictQueue:
-    existing = get_conflict_by_operation_id(session, operation_id)
+    existing = get_conflict_by_operation_id(session, operation_id, tenant_id=tenant_id)
     if existing:
         return existing
 
     conflict = ConflictQueue(
+        tenant_id=tenant_id,
         operation_id=operation_id,
         entity_type=entity_type,
         entity_id=entity_id,
@@ -389,16 +441,21 @@ def enqueue_conflict(
     return conflict
 
 
-def list_conflicts(session: Session, *, resolved: bool | None = None) -> list[ConflictQueue]:
+def list_conflicts(session: Session, *, tenant_id: str | None = None, resolved: bool | None = None) -> list[ConflictQueue]:
     query = select(ConflictQueue)
+    if tenant_id:
+        query = query.where(ConflictQueue.tenant_id == tenant_id)
     if resolved is not None:
         query = query.where(ConflictQueue.resolved == resolved)
     query = query.order_by(ConflictQueue.created_at.desc())
     return list(session.exec(query))
 
 
-def resolve_conflict(session: Session, conflict_id: str) -> ConflictQueue | None:
-    conflict = session.get(ConflictQueue, conflict_id)
+def resolve_conflict(session: Session, conflict_id: str, tenant_id: str | None = None) -> ConflictQueue | None:
+    query = select(ConflictQueue).where(ConflictQueue.id == conflict_id)
+    if tenant_id:
+        query = query.where(ConflictQueue.tenant_id == tenant_id)
+    conflict = session.exec(query).first()
     if not conflict:
         return None
     conflict.resolved = True
@@ -415,18 +472,71 @@ def append_audit_log(
     table_name: str,
     record_id: str,
     user_id: int | None = None,
+    actor_role: str | None = None,
+    tenant_id: str = "default",
     payload: dict[str, Any] | None = None,
 ) -> AuditLog:
+    payload_json = None
+    if payload is not None:
+        payload_data: dict[str, Any] = dict(payload)
+    else:
+        payload_data = {}
+    if user_id is not None or actor_role is not None:
+        payload_data["_actor"] = {
+            "user_id": user_id,
+            "role": actor_role,
+        }
+    if payload_data:
+        payload_json = json.dumps(payload_data, default=str)
+
     log = AuditLog(
+        tenant_id=tenant_id,
         user_id=user_id,
         action=action,
         table_name=table_name,
         record_id=record_id,
-        payload_json=json.dumps(payload, default=str) if payload is not None else None,
+        payload_json=payload_json,
     )
     session.add(log)
     session.flush()
     return log
+
+
+def create_tenant(session: Session, *, tenant_id: str, name: str, is_active: bool = True) -> Tenant:
+    tenant = Tenant(id=tenant_id, name=name, is_active=is_active, updated_at=utc_now())
+    session.add(tenant)
+    session.flush()
+    return tenant
+
+
+def list_tenants(session: Session) -> list[Tenant]:
+    return list(session.exec(select(Tenant).order_by(Tenant.created_at)))
+
+
+def get_tenant(session: Session, tenant_id: str) -> Tenant | None:
+    return session.exec(select(Tenant).where(Tenant.id == tenant_id)).first()
+
+
+def assign_user_tenant(session: Session, *, user_id: int, tenant_id: str) -> User | None:
+    user = session.exec(select(User).where(User.id == user_id).where(User.deleted_at.is_(None))).first()
+    if not user:
+        return None
+    user.tenant_id = tenant_id
+    user.updated_at = utc_now()
+    session.add(user)
+    session.flush()
+    return user
+
+
+def set_tenant_active(session: Session, *, tenant_id: str, is_active: bool) -> Tenant | None:
+    tenant = get_tenant(session, tenant_id)
+    if not tenant:
+        return None
+    tenant.is_active = is_active
+    tenant.updated_at = utc_now()
+    session.add(tenant)
+    session.flush()
+    return tenant
 
 
 def get_refresh_token_by_hash(session: Session, token_hash: str) -> RefreshToken | None:

@@ -35,15 +35,22 @@ class InvoicePayload(BaseModel):
 
 
 @router.get("")
-def list_invoices(session: SessionDep):
-    invoices = list_entities(session, "invoices")
+def list_invoices(
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist", "cashier")),
+):
+    invoices = list_entities(session, "invoices", tenant_id=current_user.tenant_id)
     return success_response(invoices, meta={"count": len(invoices)})
 
 
 @router.get("/{invoice_id}")
-def get_invoice(invoice_id: str, session: SessionDep):
+def get_invoice(
+    invoice_id: str,
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist", "cashier")),
+):
     try:
-        return success_response(get_invoice_detail(session, invoice_id))
+        return success_response(get_invoice_detail(session, invoice_id, tenant_id=current_user.tenant_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -52,7 +59,7 @@ def get_invoice(invoice_id: str, session: SessionDep):
 def create_invoice_route(
     payload: InvoicePayload,
     session: SessionDep,
-    current_user: User = Depends(require_role("admin", "pharmacist")),
+    current_user: User = Depends(require_role("admin", "pharmacist", "cashier")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     try:
@@ -93,17 +100,21 @@ def create_invoice_route(
                 create_invoice(
                     session,
                     invoice,
-                    items,
-                    actor_user_id=current_user.id,
-                ),
-                status_code=201,
-            )
+                items,
+                actor_user_id=current_user.id,
+                actor_role=current_user.role,
+                tenant_id=current_user.tenant_id,
+            ),
+            status_code=201,
+        )
 
         created = create_invoice(
             session,
             invoice,
             items,
             actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
             auto_commit=False,
         )
         response = success_response(created, status_code=201)
@@ -139,6 +150,15 @@ def delete_invoice(
     current_user: User = Depends(require_role("admin")),
 ):
     try:
-        return success_response(delete_entity(session, "invoices", invoice_id, actor_user_id=current_user.id))
+        return success_response(
+            delete_entity(
+                session,
+                "invoices",
+                invoice_id,
+                actor_user_id=current_user.id,
+                actor_role=current_user.role,
+                tenant_id=current_user.tenant_id,
+            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

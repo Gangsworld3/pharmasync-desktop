@@ -21,15 +21,22 @@ class ClientPayload(BaseModel):
 
 
 @router.get("")
-def list_clients(session: SessionDep):
-    clients = list_entities(session, "clients")
+def list_clients(
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist", "cashier")),
+):
+    clients = list_entities(session, "clients", tenant_id=current_user.tenant_id)
     return success_response(clients, meta={"count": len(clients)})
 
 
 @router.get("/{client_id}")
-def get_client(client_id: str, session: SessionDep):
+def get_client(
+    client_id: str,
+    session: SessionDep,
+    current_user: User = Depends(require_role("admin", "pharmacist", "cashier")),
+):
     try:
-        return success_response(get_entity(session, "clients", client_id))
+        return success_response(get_entity(session, "clients", client_id, tenant_id=current_user.tenant_id))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -46,6 +53,8 @@ def create_client(
             "clients",
             Client(**payload.model_dump()),
             actor_user_id=current_user.id,
+            actor_role=current_user.role,
+            tenant_id=current_user.tenant_id,
         ),
         status_code=201,
     )
@@ -66,6 +75,8 @@ def update_client(
                 client_id,
                 payload.model_dump(),
                 actor_user_id=current_user.id,
+                actor_role=current_user.role,
+                tenant_id=current_user.tenant_id,
             )
         )
     except ValueError as exc:
@@ -79,6 +90,15 @@ def delete_client(
     current_user: User = Depends(require_role("admin")),
 ):
     try:
-        return success_response(delete_entity(session, "clients", client_id, actor_user_id=current_user.id))
+        return success_response(
+            delete_entity(
+                session,
+                "clients",
+                client_id,
+                actor_user_id=current_user.id,
+                actor_role=current_user.role,
+                tenant_id=current_user.tenant_id,
+            )
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -29,7 +29,13 @@ def get_current_user(
 
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Inactive user.")
+    token_tenant_id = (payload.get("tenant_id") or "").strip()
+    user_tenant_id = (user.tenant_id or "").strip()
+    if token_tenant_id and user_tenant_id and token_tenant_id != user_tenant_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid tenant scope.")
     request.state.user_id = user.id
+    request.state.user_role = user.role
+    request.state.tenant_id = user.tenant_id
     return user
 
 

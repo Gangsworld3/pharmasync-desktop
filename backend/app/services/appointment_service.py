@@ -16,6 +16,7 @@ from app.db.repositories import (
     get_active_by_id,
     touch_for_update,
 )
+from app.services.rbac_service import ensure_permission
 
 
 def _appointment_zone() -> ZoneInfo:
@@ -44,12 +45,17 @@ def create_appointment(
     appointment: Appointment,
     device_id: str | None = None,
     actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    tenant_id: str | None = None,
 ) -> Appointment:
+    if actor_role is not None:
+        ensure_permission("appointments:mutate", actor_role)
+    appointment.tenant_id = tenant_id or "default"
     appointment.starts_at, appointment.ends_at = _normalize_appointment_window(appointment.starts_at, appointment.ends_at)
 
     if appointment.staff_name:
         conflict = find_appointment_conflict(
-            session, appointment.staff_name, appointment.starts_at, appointment.ends_at
+            session, appointment.staff_name, appointment.starts_at, appointment.ends_at, tenant_id=tenant_id
         )
         if conflict:
             raise ValueError("Appointment conflicts with existing staff schedule.")
@@ -65,6 +71,7 @@ def create_appointment(
             payload=appointment.model_dump(mode="json"),
             operation_id=str(uuid.uuid4()),
             device_id=device_id,
+            tenant_id=tenant_id or "default",
         )
         apply_server_revision(appointment, event.server_revision or 0)
         session.add(appointment)
@@ -74,6 +81,8 @@ def create_appointment(
             table_name="appointments",
             record_id=str(appointment.id),
             user_id=actor_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id or "default",
             payload=appointment.model_dump(mode="json"),
         )
         session.commit()
@@ -90,8 +99,12 @@ def update_appointment(
     changes: dict,
     device_id: str | None = None,
     actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    tenant_id: str | None = None,
 ) -> Appointment:
-    appointment = get_active_by_id(session, Appointment, appointment_id)
+    if actor_role is not None:
+        ensure_permission("appointments:mutate", actor_role)
+    appointment = get_active_by_id(session, Appointment, appointment_id, tenant_id=tenant_id)
     if not appointment:
         raise ValueError("Appointment not found.")
 
@@ -112,6 +125,7 @@ def update_appointment(
             appointment.starts_at,
             appointment.ends_at,
             exclude_id=str(appointment.id),
+            tenant_id=tenant_id,
         )
         if conflict:
             raise ValueError("Appointment conflicts with existing staff schedule.")
@@ -126,6 +140,7 @@ def update_appointment(
             payload=changes,
             operation_id=str(uuid.uuid4()),
             device_id=device_id,
+            tenant_id=tenant_id or "default",
         )
         apply_server_revision(appointment, event.server_revision or 0)
         session.add(appointment)
@@ -135,6 +150,8 @@ def update_appointment(
             table_name="appointments",
             record_id=str(appointment.id),
             user_id=actor_user_id,
+            actor_role=actor_role,
+            tenant_id=tenant_id or "default",
             payload=changes,
         )
         session.commit()

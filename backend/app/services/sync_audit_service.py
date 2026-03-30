@@ -48,9 +48,10 @@ def replay_sync_audit(
     *,
     since_revision: int = 0,
     upto_revision: int | None = None,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
-    events = list_sync_events_since(session, since_revision)
-    audits = list_sync_event_audit_since(session, since_revision)
+    events = list_sync_events_since(session, since_revision, tenant_id=tenant_id)
+    audits = list_sync_event_audit_since(session, since_revision, tenant_id=tenant_id)
 
     if upto_revision is not None:
         events = [event for event in events if (event.server_revision or 0) <= upto_revision]
@@ -161,8 +162,14 @@ def export_sync_audit_snapshot(
     since_revision: int = 0,
     upto_revision: int | None = None,
     include_events: bool = True,
+    tenant_id: str | None = None,
 ) -> dict[str, Any]:
-    report = replay_sync_audit(session, since_revision=since_revision, upto_revision=upto_revision)
+    report = replay_sync_audit(
+        session,
+        since_revision=since_revision,
+        upto_revision=upto_revision,
+        tenant_id=tenant_id,
+    )
     signature = sign_sync_audit_report(report)
 
     payload: dict[str, Any] = {
@@ -172,8 +179,8 @@ def export_sync_audit_snapshot(
     }
 
     if include_events:
-        events = list_sync_events_since(session, since_revision)
-        audits = list_sync_event_audit_since(session, since_revision)
+        events = list_sync_events_since(session, since_revision, tenant_id=tenant_id)
+        audits = list_sync_event_audit_since(session, since_revision, tenant_id=tenant_id)
         effective_upto = report["upto_revision"]
         payload["events"] = [
             {
