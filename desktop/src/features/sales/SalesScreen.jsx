@@ -140,6 +140,7 @@ export default function SalesScreen() {
           batchId: batch.batchId,
           sku: batch.sku ?? product.sku,
           name: product.name,
+          category: product.category,
           qty: 1,
           expiry: batch.expiry,
           unitPriceMinor: batch.price
@@ -181,6 +182,8 @@ export default function SalesScreen() {
           clientId: selectedClientId,
           inventorySku: item.sku,
           inventoryBatchId: item.batchId,
+          productName: item.name,
+          productCategory: item.category,
           quantity: item.qty,
           totalMinor: item.qty * item.unitPriceMinor,
           paymentMethod

@@ -17,7 +17,7 @@
     "db:generate": "prisma generate",
     "db:push": "node src/db/init-sqlite.js",
     "db:seed": "node src/db/seed.js",
-    "test:desktop-sync": "node --test --test-concurrency=1 desktop-tests/fefo.test.js desktop-tests/sync-resilience.test.js desktop-tests/sync-dependency-boundaries.test.js",
+    "test:desktop-sync": "node --test --test-concurrency=1 desktop-tests/fefo.test.js desktop-tests/invoice-batch-split.test.js desktop-tests/sync-resilience.test.js desktop-tests/sync-dependency-boundaries.test.js",
     "test:desktop-chaos": "node --test --test-concurrency=1 desktop-tests/sync-chaos.test.js",
     "test:desktop-chaos-matrix": "node --test --test-concurrency=1 desktop-tests/chaos-matrix.test.js",
     "simulate:sync": "node desktop-tests/sync-simulation-runner.js",

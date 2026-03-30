@@ -649,20 +649,41 @@ export async function createInvoiceWithDependencies(tx, payload) {
     throw new Error("Quantity must be greater than zero.");
   }
 
-  const candidates = payload.inventoryBatchId
-    ? await tx.inventoryItem.findMany({
-      where: { id: payload.inventoryBatchId, deletedAt: null }
-    })
-    : await tx.inventoryItem.findMany({
+  let candidates = [];
+  if (payload.inventoryBatchId) {
+    const preferredBatch = await tx.inventoryItem.findUnique({
+      where: { id: payload.inventoryBatchId }
+    });
+    if (!preferredBatch || preferredBatch.deletedAt) {
+      throw new Error(`Inventory batch ${payload.inventoryBatchId} not found.`);
+    }
+    candidates = await tx.inventoryItem.findMany({
+      where: {
+        name: preferredBatch.name,
+        category: preferredBatch.category,
+        deletedAt: null
+      }
+    });
+  } else if (payload.productName) {
+    candidates = await tx.inventoryItem.findMany({
+      where: {
+        name: payload.productName,
+        ...(payload.productCategory ? { category: payload.productCategory } : {}),
+        deletedAt: null
+      }
+    });
+  } else {
+    candidates = await tx.inventoryItem.findMany({
       where: { sku: payload.inventorySku, deletedAt: null }
     });
-
-  if (candidates.length === 0) {
-    throw new Error(`Inventory item ${payload.inventorySku} not found.`);
   }
 
-  const inventoryItem = candidates
-    .filter((item) => Number(item.quantityOnHand ?? 0) >= quantity)
+  if (candidates.length === 0) {
+    throw new Error(`Inventory item ${payload.inventorySku ?? payload.productName ?? "unknown"} not found.`);
+  }
+
+  const validCandidates = candidates
+    .filter((item) => Number(item.quantityOnHand ?? 0) > 0)
     .filter((item) => {
       if (!item.expiresOn) return true;
       const expiresAt = new Date(item.expiresOn).getTime();
@@ -672,14 +693,26 @@ export async function createInvoiceWithDependencies(tx, payload) {
       const leftExpiry = left.expiresOn ? new Date(left.expiresOn).getTime() : Number.POSITIVE_INFINITY;
       const rightExpiry = right.expiresOn ? new Date(right.expiresOn).getTime() : Number.POSITIVE_INFINITY;
       return leftExpiry - rightExpiry;
-    })[0];
+    });
 
-  if (!inventoryItem) {
+  const totalAvailable = validCandidates.reduce((sum, item) => sum + Number(item.quantityOnHand ?? 0), 0);
+  if (totalAvailable < quantity) {
     const hasExpired = candidates.some((item) => item.expiresOn && new Date(item.expiresOn).getTime() <= now);
-    if (hasExpired) {
-      throw new Error(`Cannot sell expired batch for ${payload.inventorySku}.`);
+    if (hasExpired && totalAvailable <= 0) {
+      throw new Error(`Cannot sell expired batch for ${payload.inventorySku ?? payload.productName ?? "item"}.`);
     }
-    throw new Error(`Insufficient stock for ${payload.inventorySku}.`);
+    throw new Error(`Insufficient stock for ${payload.inventorySku ?? payload.productName ?? "item"}.`);
+  }
+
+  const allocations = [];
+  let remaining = quantity;
+  for (const batch of validCandidates) {
+    if (remaining <= 0) break;
+    const available = Number(batch.quantityOnHand ?? 0);
+    const consume = Math.min(available, remaining);
+    if (consume <= 0) continue;
+    allocations.push({ batchId: batch.id, quantity: consume });
+    remaining -= consume;
   }
 
   const invoice = await tx.invoice.create({
@@ -698,17 +731,26 @@ export async function createInvoiceWithDependencies(tx, payload) {
     }
   });
 
-  const updatedInventory = await tx.inventoryItem.update({
-    where: { id: inventoryItem.id },
-    data: {
-      quantityOnHand: { decrement: quantity },
-      dirty: true,
-      syncStatus: "PENDING",
-      localRevision: { increment: 1 }
-    }
-  });
+  const updatedInventories = [];
+  for (const allocation of allocations) {
+    const updatedInventory = await tx.inventoryItem.update({
+      where: { id: allocation.batchId },
+      data: {
+        quantityOnHand: { decrement: allocation.quantity },
+        dirty: true,
+        syncStatus: "PENDING",
+        localRevision: { increment: 1 }
+      }
+    });
+    updatedInventories.push(updatedInventory);
+  }
 
-  return { invoice, updatedInventory };
+  return {
+    invoice,
+    allocations,
+    updatedInventories,
+    updatedInventory: updatedInventories[0] ?? null
+  };
 }
 
 export function appendSyncQueue(tx, event) {

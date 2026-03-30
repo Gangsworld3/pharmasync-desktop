@@ -12,6 +12,9 @@ function isoDaysFromNow(days) {
 
 async function seedInventory() {
   const suffix = randomUUID().slice(0, 8);
+  const fefoName = `Paracetamol ${suffix}`;
+  const nearName = `Antibiotic ${suffix}`;
+  const expiredName = `Expired Drug ${suffix}`;
 
   const skuFefoA = `SIM-FEFO-A-${suffix}`;
   const skuFefoB = `SIM-FEFO-B-${suffix}`;
@@ -22,9 +25,9 @@ async function seedInventory() {
     data: {
       id: `inv-${randomUUID()}`,
       sku: skuFefoA,
-      name: "Paracetamol",
+      name: fefoName,
       category: "General",
-      quantityOnHand: 20,
+      quantityOnHand: 1,
       reorderLevel: 5,
       unitCostMinor: 100,
       salePriceMinor: 200,
@@ -38,7 +41,7 @@ async function seedInventory() {
     data: {
       id: `inv-${randomUUID()}`,
       sku: skuFefoB,
-      name: "Paracetamol",
+      name: fefoName,
       category: "General",
       quantityOnHand: 30,
       reorderLevel: 5,
@@ -54,7 +57,7 @@ async function seedInventory() {
     data: {
       id: `inv-${randomUUID()}`,
       sku: skuNear,
-      name: "Antibiotic",
+      name: nearName,
       category: "General",
       quantityOnHand: 10,
       reorderLevel: 3,
@@ -70,7 +73,7 @@ async function seedInventory() {
     data: {
       id: `inv-${randomUUID()}`,
       sku: skuExpired,
-      name: "Expired Drug",
+      name: expiredName,
       category: "General",
       quantityOnHand: 5,
       reorderLevel: 1,
@@ -122,12 +125,12 @@ async function run() {
     clientId,
     inventorySku: selectedFefo.sku,
     inventoryBatchId: selectedFefo.batchId,
-    quantity: 1,
-    totalMinor: 200,
+    quantity: 3,
+    totalMinor: 600,
     paymentMethod: "CASH"
   }, "simulation");
 
-  console.log("Scenario FEFO (multi-batch): selected batch", fefoInvoice.updatedInventory.batchNumber, fefoInvoice.updatedInventory.expiresOn);
+  console.log("Scenario FEFO (multi-batch): allocations", fefoInvoice.allocations);
 
   const nearInvoice = await createInvoiceTransaction({
     invoiceNumber: `SIM-NEAR-${Date.now()}`,
@@ -139,7 +142,7 @@ async function run() {
     paymentMethod: "CASH"
   }, "simulation");
 
-  console.log("Scenario near-expiry: sold batch", nearInvoice.updatedInventory.batchNumber, nearInvoice.updatedInventory.expiresOn);
+  console.log("Scenario near-expiry: allocations", nearInvoice.allocations);
 
   try {
     await createInvoiceTransaction({

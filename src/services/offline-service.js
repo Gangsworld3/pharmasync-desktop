@@ -17,6 +17,15 @@ function nextRetryDate(attempts) {
 export async function createInvoiceTransaction(payload, actor = "system") {
   return runLocalTransaction(async (tx) => {
     const result = await createInvoiceWithDependencies(tx, payload);
+    const allocationItems = result.allocations.map((allocation) => {
+      const inventory = result.updatedInventories.find((item) => item.id === allocation.batchId);
+      return {
+        batch_id: allocation.batchId,
+        sku: inventory?.sku ?? payload.inventorySku ?? null,
+        qty: allocation.quantity,
+        expires_on: inventory?.expiresOn ?? null
+      };
+    });
 
     await appendSyncQueue(tx, {
       entityType: "Invoice",
@@ -24,22 +33,24 @@ export async function createInvoiceTransaction(payload, actor = "system") {
       operation: "UPSERT",
       payload: {
         invoiceId: result.invoice.id,
-        inventoryId: result.updatedInventory.id,
         invoiceNumber: result.invoice.invoiceNumber,
-        quantityDeducted: payload.quantity
+        quantityDeducted: payload.quantity,
+        allocations: allocationItems
       }
     });
 
-    await appendSyncQueue(tx, {
-      entityType: "InventoryItem",
-      entityId: result.updatedInventory.id,
-      operation: "UPSERT",
-      payload: {
-        inventoryId: result.updatedInventory.id,
-        quantityOnHand: result.updatedInventory.quantityOnHand,
-        sourceInvoiceId: result.invoice.id
-      }
-    });
+    for (const updatedInventory of result.updatedInventories) {
+      await appendSyncQueue(tx, {
+        entityType: "InventoryItem",
+        entityId: updatedInventory.id,
+        operation: "UPSERT",
+        payload: {
+          inventoryId: updatedInventory.id,
+          quantityOnHand: updatedInventory.quantityOnHand,
+          sourceInvoiceId: result.invoice.id
+        }
+      });
+    }
 
     await appendAuditLog(tx, {
       actor,
@@ -49,8 +60,9 @@ export async function createInvoiceTransaction(payload, actor = "system") {
       detailsJson: {
         invoiceNumber: result.invoice.invoiceNumber,
         inventorySku: payload.inventorySku,
-        inventoryBatchId: result.updatedInventory.id,
-        quantity: payload.quantity
+        quantity: payload.quantity,
+        splitCount: allocationItems.length,
+        allocations: allocationItems
       }
     });
 
@@ -66,29 +78,31 @@ export async function createInvoiceTransaction(payload, actor = "system") {
         payment_method: result.invoice.paymentMethod,
         status: result.invoice.status,
         issued_at: result.invoice.issuedAt,
-        items: [{ sku: payload.inventorySku, batch_id: result.updatedInventory.id, qty: payload.quantity }]
+        items: allocationItems
       },
       localRevision: result.invoice.localRevision
     });
 
-    await appendLocalOperation(tx, {
-      operationId: `local-inventory-${result.updatedInventory.id}-${result.updatedInventory.localRevision}`,
-      entityType: "InventoryItem",
-      entityId: result.updatedInventory.id,
-      operation: "UPDATE",
-      payload: {
-        sku: result.updatedInventory.sku,
-        name: result.updatedInventory.name,
-        category: result.updatedInventory.category,
-        quantity_on_hand: result.updatedInventory.quantityOnHand,
-        reorder_level: result.updatedInventory.reorderLevel,
-        unit_cost_minor: result.updatedInventory.unitCostMinor,
-        sale_price_minor: result.updatedInventory.salePriceMinor,
-        batch_number: result.updatedInventory.batchNumber,
-        expires_on: result.updatedInventory.expiresOn
-      },
-      localRevision: result.updatedInventory.localRevision
-    });
+    for (const updatedInventory of result.updatedInventories) {
+      await appendLocalOperation(tx, {
+        operationId: `local-inventory-${updatedInventory.id}-${updatedInventory.localRevision}`,
+        entityType: "InventoryItem",
+        entityId: updatedInventory.id,
+        operation: "UPDATE",
+        payload: {
+          sku: updatedInventory.sku,
+          name: updatedInventory.name,
+          category: updatedInventory.category,
+          quantity_on_hand: updatedInventory.quantityOnHand,
+          reorder_level: updatedInventory.reorderLevel,
+          unit_cost_minor: updatedInventory.unitCostMinor,
+          sale_price_minor: updatedInventory.salePriceMinor,
+          batch_number: updatedInventory.batchNumber,
+          expires_on: updatedInventory.expiresOn
+        },
+        localRevision: updatedInventory.localRevision
+      });
+    }
 
     return result;
   });
