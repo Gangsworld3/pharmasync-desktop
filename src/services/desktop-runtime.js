@@ -97,6 +97,11 @@ export function appendDesktopLog(fileName, message) {
   appendFileSync(join(logsDir, fileName), `[${new Date().toISOString()}] ${message}\n`);
 }
 
+export function appendDesktopJsonLog(fileName, payload) {
+  const { logsDir } = ensureRuntimeDirectories();
+  appendFileSync(join(logsDir, fileName), `${JSON.stringify(payload)}\n`);
+}
+
 export function getDatabasePath() {
   return ensureRuntimeDirectories().dbPath;
 }

@@ -15,6 +15,7 @@ import {
 } from "../db/repositories.js";
 import {
   appendDesktopLog,
+  appendDesktopJsonLog,
   clearDesktopSession,
   getDesktopSession,
   getDesktopSettings,
@@ -87,11 +88,11 @@ function jitterMs(baseMs) {
 }
 
 function logSyncEvent(event, payload = {}) {
-  appendDesktopLog("sync.log", JSON.stringify({
+  appendDesktopJsonLog("sync.log", {
     event,
     at: new Date().toISOString(),
     ...payload
-  }));
+  });
 }
 
 function classifyErrorMessage(error) {
