@@ -1,6 +1,5 @@
 import { SyncOperation } from "./operation.js";
 import { decideSyncOutcome } from "./sync-decision.js";
-import { SyncResultType } from "./sync-result.js";
 
 export function evaluatePushResult({
   rawOperation,
@@ -20,7 +19,7 @@ export function evaluatePushResult({
     mapConflict
   });
 
-  if (decision.type === SyncResultType.SUCCESS) {
+  if (decision.type === "SUCCESS") {
     return {
       decision,
       transitionEvent: decision.transitionEvent,
@@ -28,7 +27,7 @@ export function evaluatePushResult({
     };
   }
 
-  if (decision.type === SyncResultType.CONFLICT) {
+  if (decision.type === "CONFLICT") {
     return {
       decision,
       transitionEvent: "CONFLICT",
@@ -61,7 +60,7 @@ export function evaluatePushTransportFailure({
 }) {
   const operation = new SyncOperation(rawOperation);
   return {
-    decision: { type: SyncResultType.RETRY, reason },
+    decision: { type: "RETRY", reason },
     transitionEvent: "FAIL",
     transitionContext: {
       reason,
