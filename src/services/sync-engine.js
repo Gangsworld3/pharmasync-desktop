@@ -232,6 +232,13 @@ async function requestWithRetry(url, init, config) {
     }
   }
 
+  if (lastError?.name === "AbortError") {
+    throw new Error(
+      `Remote request timed out after ${timeoutMs}ms (${maxRequestRetries} attempts) for ${url}. ` +
+      "Check backend URL reachability and request-timeout settings."
+    );
+  }
+
   throw lastError ?? new Error("Request failed.");
 }
 
