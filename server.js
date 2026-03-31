@@ -6,20 +6,6 @@ import { extname, join, normalize } from "node:path";
 import "./src/db/init-sqlite.js";
 import { bootstrapLocalDatabase } from "./src/db/bootstrap.js";
 import {
-  ensureDeviceState,
-  getOfflineSummary,
-  listConflictOperations,
-  listAuditLogs,
-  listLocalOperations,
-  listMessages,
-  listSyncQueue,
-} from "./src/db/repositories.js";
-import {
-  resolveDesktopConflict,
-  resolveConflict,
-  runSyncRetryCycle
-} from "./src/services/offline-service.js";
-import {
   authenticateDesktopSession,
   getCurrentRemoteUser,
   getRemoteDailySales,
@@ -31,15 +17,6 @@ import {
   runSyncCycle,
   startBackgroundSyncLoop
 } from "./src/services/sync-engine.js";
-import { listLocalClients, createClient, updateClient } from "./src/services/client-service.js";
-import {
-  listInventoryBatches,
-  createInventoryBatch,
-  updateInventoryBatch,
-  adjustInventoryBatch
-} from "./src/services/inventory-service.js";
-import { listLocalInvoices, createInvoice } from "./src/services/sales-service.js";
-import { listLocalAppointments, createAppointment } from "./src/services/appointment-service.js";
 import {
   exportLocalDatabase,
   getDesktopSettings,
@@ -50,6 +27,54 @@ import {
 const runtimePaths = getRuntimePaths();
 const root = normalize(join(runtimePaths.appRoot, "desktop"));
 const port = Number(process.env.PORT || 4173);
+let repositoriesModulePromise = null;
+let clientsModulePromise = null;
+let inventoryModulePromise = null;
+let appointmentsModulePromise = null;
+let salesModulePromise = null;
+let offlineModulePromise = null;
+
+function loadRepositoriesModule() {
+  if (!repositoriesModulePromise) {
+    repositoriesModulePromise = import("./src/db/repositories.js");
+  }
+  return repositoriesModulePromise;
+}
+
+function loadClientsModule() {
+  if (!clientsModulePromise) {
+    clientsModulePromise = import("./src/services/client-service.js");
+  }
+  return clientsModulePromise;
+}
+
+function loadInventoryModule() {
+  if (!inventoryModulePromise) {
+    inventoryModulePromise = import("./src/services/inventory-service.js");
+  }
+  return inventoryModulePromise;
+}
+
+function loadAppointmentsModule() {
+  if (!appointmentsModulePromise) {
+    appointmentsModulePromise = import("./src/services/appointment-service.js");
+  }
+  return appointmentsModulePromise;
+}
+
+function loadSalesModule() {
+  if (!salesModulePromise) {
+    salesModulePromise = import("./src/services/sales-service.js");
+  }
+  return salesModulePromise;
+}
+
+function loadOfflineModule() {
+  if (!offlineModulePromise) {
+    offlineModulePromise = import("./src/services/offline-service.js");
+  }
+  return offlineModulePromise;
+}
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -63,17 +88,17 @@ const mimeTypes = {
 };
 
 const getRoutes = {
-  "/api/local/summary": getOfflineSummary,
-  "/api/local/clients": listLocalClients,
-  "/api/local/invoices": listLocalInvoices,
-  "/api/local/inventory": listInventoryBatches,
-  "/api/local/appointments": listLocalAppointments,
-  "/api/local/messages": listMessages,
-  "/api/local/sync-queue": listSyncQueue,
-  "/api/local/audit-logs": listAuditLogs,
+  "/api/local/summary": async () => (await loadRepositoriesModule()).getOfflineSummary(),
+  "/api/local/clients": async () => (await loadClientsModule()).listLocalClients(),
+  "/api/local/invoices": async () => (await loadSalesModule()).listLocalInvoices(),
+  "/api/local/inventory": async () => (await loadInventoryModule()).listInventoryBatches(),
+  "/api/local/appointments": async () => (await loadAppointmentsModule()).listLocalAppointments(),
+  "/api/local/messages": async () => (await loadRepositoriesModule()).listMessages(),
+  "/api/local/sync-queue": async () => (await loadRepositoriesModule()).listSyncQueue(),
+  "/api/local/audit-logs": async () => (await loadRepositoriesModule()).listAuditLogs(),
   "/api/local/sync/status": getSyncEngineStatus,
-  "/api/local/operations": listLocalOperations,
-  "/api/local/conflicts": listConflictOperations,
+  "/api/local/operations": async () => (await loadRepositoriesModule()).listLocalOperations(),
+  "/api/local/conflicts": async () => (await loadRepositoriesModule()).listConflictOperations(),
   "/api/local/settings": getDesktopSettings,
   "/api/local/app-meta": () => ({
     version: "1.0.0",
@@ -110,7 +135,7 @@ function readJsonBody(req) {
 }
 
 await bootstrapLocalDatabase();
-await ensureDeviceState();
+await (await loadRepositoriesModule()).ensureDeviceState();
 await startBackgroundSyncLoop();
 
 createServer(async (req, res) => {
@@ -124,28 +149,28 @@ createServer(async (req, res) => {
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/invoices") {
       const body = await readJsonBody(req);
-      const result = await createInvoice(body, "desktop-user");
+      const result = await (await loadSalesModule()).createInvoice(body, "desktop-user");
       sendJson(res, 201, result);
       return;
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/clients") {
       const body = await readJsonBody(req);
-      const result = await createClient(body);
+      const result = await (await loadClientsModule()).createClient(body);
       sendJson(res, 201, result);
       return;
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/appointments") {
       const body = await readJsonBody(req);
-      const result = await createAppointment(body);
+      const result = await (await loadAppointmentsModule()).createAppointment(body);
       sendJson(res, 201, result);
       return;
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/inventory") {
       const body = await readJsonBody(req);
-      const result = await createInventoryBatch(body);
+      const result = await (await loadInventoryModule()).createInventoryBatch(body);
       sendJson(res, 201, result);
       return;
     }
@@ -153,7 +178,7 @@ createServer(async (req, res) => {
     if (req.method === "PATCH" && requestUrl.pathname.startsWith("/api/local/clients/")) {
       const clientId = requestUrl.pathname.split("/").pop();
       const body = await readJsonBody(req);
-      const result = await updateClient(clientId, body);
+      const result = await (await loadClientsModule()).updateClient(clientId, body);
       sendJson(res, 200, result);
       return;
     }
@@ -161,7 +186,7 @@ createServer(async (req, res) => {
     if (req.method === "PATCH" && requestUrl.pathname.startsWith("/api/local/inventory/")) {
       const batchId = requestUrl.pathname.split("/").pop();
       const body = await readJsonBody(req);
-      const result = await updateInventoryBatch(batchId, body);
+      const result = await (await loadInventoryModule()).updateInventoryBatch(batchId, body);
       sendJson(res, 200, result);
       return;
     }
@@ -170,13 +195,17 @@ createServer(async (req, res) => {
       const parts = requestUrl.pathname.split("/");
       const batchId = parts[parts.length - 2];
       const body = await readJsonBody(req);
-      const result = await adjustInventoryBatch(batchId, Number(body.delta ?? 0), body.reason ?? "manual-adjustment");
+      const result = await (await loadInventoryModule()).adjustInventoryBatch(
+        batchId,
+        Number(body.delta ?? 0),
+        body.reason ?? "manual-adjustment"
+      );
       sendJson(res, 200, result);
       return;
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/local/sync/retry") {
-      const result = await runSyncRetryCycle();
+      const result = await (await loadOfflineModule()).runSyncRetryCycle();
       sendJson(res, 200, result);
       return;
     }
@@ -256,7 +285,11 @@ createServer(async (req, res) => {
     if (req.method === "POST" && requestUrl.pathname.startsWith("/api/local/sync/conflicts/")) {
       const queueId = requestUrl.pathname.split("/").pop();
       const body = await readJsonBody(req);
-      const result = await resolveConflict(queueId, body.resolution ?? "manual-accept-local", "desktop-user");
+      const result = await (await loadOfflineModule()).resolveConflict(
+        queueId,
+        body.resolution ?? "manual-accept-local",
+        "desktop-user"
+      );
       sendJson(res, 200, result);
       return;
     }
@@ -264,7 +297,7 @@ createServer(async (req, res) => {
     if (req.method === "POST" && requestUrl.pathname.startsWith("/api/local/conflicts/")) {
       const conflictId = requestUrl.pathname.split("/").pop();
       const body = await readJsonBody(req);
-      const result = await resolveDesktopConflict(conflictId, body, "desktop-user");
+      const result = await (await loadOfflineModule()).resolveDesktopConflict(conflictId, body, "desktop-user");
       sendJson(res, 200, result);
       return;
     }
