@@ -10,9 +10,11 @@ export {
   listAuditLogs,
   listConflictOperations,
   listLocalOperations,
+  listSyncQueue,
   listRetryableQueueItems,
   markQueueItemState,
   recoverInProgressLocalOperations,
+  runLocalTransaction,
   updateDeviceState,
   updateLocalOperation
 } from "./repositories/syncRepo.js";
@@ -59,53 +61,6 @@ export function listMessages() {
     include: { client: true },
     orderBy: { createdAt: "desc" }
   });
-}
-
-export function listSyncQueue() {
-  return prisma.syncQueue.findMany({ orderBy: { createdAt: "desc" } });
-}
-
-function isSqliteLockedError(error) {
-  const message = String(error?.message ?? "");
-  return message.toLowerCase().includes("database is locked");
-}
-
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function withSqliteLockRetry(work, { maxAttempts = 4, baseDelayMs = 20 } = {}) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await work();
-    } catch (error) {
-      if (!isSqliteLockedError(error) || attempt === maxAttempts) {
-        throw error;
-      }
-      await wait(baseDelayMs * attempt);
-    }
-  }
-  throw new Error("Unexpected sqlite retry flow state.");
-}
-
-export async function runLocalTransaction(callback) {
-  const maxAttempts = Number(process.env.PHARMASYNC_SQLITE_TX_MAX_ATTEMPTS ?? 4);
-  const baseDelayMs = Number(process.env.PHARMASYNC_SQLITE_TX_RETRY_BASE_MS ?? 20);
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    try {
-      return await prisma.$transaction(callback);
-    } catch (error) {
-      if (!isSqliteLockedError(error) || attempt === maxAttempts) {
-        throw error;
-      }
-
-      const delayMs = baseDelayMs * attempt;
-      await wait(delayMs);
-    }
-  }
-
-  throw new Error("Unexpected transaction retry flow state.");
 }
 
 export async function upsertClientFromServer(change) {
