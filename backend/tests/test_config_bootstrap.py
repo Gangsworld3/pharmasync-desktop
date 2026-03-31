@@ -31,7 +31,7 @@ def test_production_requires_database_url(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("PHARMASYNC_JWT_SECRET", "prod-jwt-secret")
     monkeypatch.setenv("PHARMASYNC_DEFAULT_ADMIN_PASSWORD", "ProdAdmin!123")
 
-    with pytest.raises(RuntimeError, match="Missing DATABASE_URL in production"):
+    with pytest.raises(RuntimeError, match="Missing PHARMASYNC_DATABASE_URL in production"):
         _reload_config_module()
 
 
@@ -39,7 +39,7 @@ def test_production_requires_jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None
     _clear_env(monkeypatch)
     monkeypatch.setenv("ENV", "production")
     monkeypatch.setenv(
-        "DATABASE_URL", "postgresql://user:pass@db.example.com:5432/pharmasync"
+        "PHARMASYNC_DATABASE_URL", "postgresql://user:pass@db.example.com:5432/pharmasync"
     )
     monkeypatch.setenv("PHARMASYNC_DEFAULT_ADMIN_PASSWORD", "ProdAdmin!123")
 
@@ -52,7 +52,7 @@ def test_production_requires_admin_password(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("ENV", "production")
     monkeypatch.setenv("PHARMASYNC_JWT_SECRET", "prod-jwt-secret")
     monkeypatch.setenv(
-        "DATABASE_URL", "postgresql://user:pass@db.example.com:5432/pharmasync"
+        "PHARMASYNC_DATABASE_URL", "postgresql://user:pass@db.example.com:5432/pharmasync"
     )
 
     with pytest.raises(
@@ -70,3 +70,32 @@ def test_development_bootstrap_uses_safe_defaults(monkeypatch: pytest.MonkeyPatc
     assert config_module.settings.jwt_secret
     assert config_module.settings.default_admin_password
     assert config_module.settings.database_url == config_module.LOCAL_DEV_DATABASE_URL
+
+
+def test_production_rejects_legacy_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("PHARMASYNC_JWT_SECRET", "prod-jwt-secret")
+    monkeypatch.setenv("PHARMASYNC_DEFAULT_ADMIN_PASSWORD", "ProdAdmin!123")
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql://user:pass@db.example.com:5432/pharmasync"
+    )
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL is not allowed in production"):
+        _reload_config_module()
+
+
+def test_production_rejects_conflicting_database_urls(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("ENV", "production")
+    monkeypatch.setenv("PHARMASYNC_JWT_SECRET", "prod-jwt-secret")
+    monkeypatch.setenv("PHARMASYNC_DEFAULT_ADMIN_PASSWORD", "ProdAdmin!123")
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql://legacy:pass@db.example.com:5432/pharmasync"
+    )
+    monkeypatch.setenv(
+        "PHARMASYNC_DATABASE_URL", "postgresql://primary:pass@db.example.com:5432/pharmasync"
+    )
+
+    with pytest.raises(RuntimeError, match="Set only PHARMASYNC_DATABASE_URL"):
+        _reload_config_module()

@@ -45,12 +45,30 @@ def _resolve_admin_password() -> str:
 
 
 def _resolve_database_url() -> str:
-    raw_url = os.getenv("DATABASE_URL") or os.getenv("PHARMASYNC_DATABASE_URL")
-    if raw_url:
-        return normalize_database_url(raw_url)
+    primary_url = os.getenv("PHARMASYNC_DATABASE_URL")
+    legacy_url = os.getenv("DATABASE_URL")
+
+    if primary_url and legacy_url and _is_production():
+        raise RuntimeError(
+            "Conflicting database configuration in production. "
+            "Set only PHARMASYNC_DATABASE_URL and remove DATABASE_URL."
+        )
+
+    if primary_url:
+        return normalize_database_url(primary_url)
+
+    if legacy_url and _is_production():
+        raise RuntimeError(
+            "DATABASE_URL is not allowed in production. "
+            "Use PHARMASYNC_DATABASE_URL only."
+        )
+
+    if legacy_url:
+        return normalize_database_url(legacy_url)
+
     if _is_production():
         raise RuntimeError(
-            "Missing DATABASE_URL in production. Set DATABASE_URL (or PHARMASYNC_DATABASE_URL)."
+            "Missing PHARMASYNC_DATABASE_URL in production."
         )
     return LOCAL_DEV_DATABASE_URL
 
