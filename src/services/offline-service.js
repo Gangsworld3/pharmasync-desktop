@@ -2,12 +2,12 @@ import {
   appendAuditLog,
   appendLocalOperation,
   appendSyncQueue,
-  createInvoiceWithDependencies,
   listSyncQueue,
   listRetryableQueueItems,
   markQueueItemState,
   runLocalTransaction,
-} from "../db/repositories.js";
+} from "../db/repositories/syncRepo.js";
+import { createInvoiceWithDependencies } from "../db/repositories/salesRepo.js";
 
 function nextRetryDate(attempts) {
   const backoffMinutes = Math.min(2 ** attempts, 30);

@@ -1,4 +1,4 @@
-import { createLocalClient, listClients, updateLocalClient } from "../db/repositories.js";
+import { createLocalClient, listClients, updateLocalClient } from "../db/repositories/clientRepo.js";
 
 export function listLocalClients() {
   return listClients();

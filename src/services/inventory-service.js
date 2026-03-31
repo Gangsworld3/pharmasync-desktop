@@ -3,7 +3,7 @@ import {
   createLocalInventoryBatch,
   listInventory,
   updateLocalInventoryBatch
-} from "../db/repositories.js";
+} from "../db/repositories/inventoryRepo.js";
 
 export function listInventoryBatches() {
   return listInventory();

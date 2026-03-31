@@ -1,4 +1,4 @@
-import { listInvoices } from "../db/repositories.js";
+import { listInvoices } from "../db/repositories/salesRepo.js";
 import { createInvoiceTransaction } from "./offline-service.js";
 
 export function listLocalInvoices() {

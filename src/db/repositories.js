@@ -417,8 +417,30 @@ function isSqliteLockedError(error) {
   return message.toLowerCase().includes("database is locked");
 }
 
+function isPrismaRecordMissingError(error) {
+  if (error?.code === "P2025") {
+    return true;
+  }
+  const message = String(error?.message ?? "").toLowerCase();
+  return message.includes("record") && message.includes("not found");
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withSqliteLockRetry(work, { maxAttempts = 4, baseDelayMs = 20 } = {}) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await work();
+    } catch (error) {
+      if (!isSqliteLockedError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+      await wait(baseDelayMs * attempt);
+    }
+  }
+  throw new Error("Unexpected sqlite retry flow state.");
 }
 
 export async function runLocalTransaction(callback) {
@@ -452,14 +474,14 @@ export function getDeviceState() {
 export function listLocalOperations(statuses = ["PENDING", "RETRY", "RETRY_SCHEDULED", "IN_PROGRESS", "CONFLICT"]) {
   return prisma.localOperation.findMany({
     where: { status: { in: statuses } },
-    orderBy: { createdAt: "asc" }
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }]
   });
 }
 
 export function listConflictOperations() {
   return prisma.localOperation.findMany({
     where: { status: "CONFLICT" },
-    orderBy: { updatedAt: "desc" }
+    orderBy: [{ updatedAt: "desc" }, { id: "asc" }]
   });
 }
 
@@ -512,17 +534,17 @@ export function appendLocalOperation(entryOrTx, maybeEntry) {
 
 export async function updateLocalOperation(id, data) {
   try {
-    return await prisma.localOperation.update({
+    return await withSqliteLockRetry(() => prisma.localOperation.update({
       where: { id },
       data: {
         ...data,
         conflictPayloadJson: data.conflictPayloadJson ? JSON.stringify(data.conflictPayloadJson) : data.conflictPayloadJson,
         updatedAt: new Date()
       }
-    });
+    }));
   } catch (error) {
     // Retry/chaos flows can race with operation cleanup; treat missing rows as no-op.
-    if (error?.code === "P2025") {
+    if (isPrismaRecordMissingError(error)) {
       return null;
     }
     throw error;
@@ -532,7 +554,7 @@ export async function updateLocalOperation(id, data) {
 export async function getPendingLocalOperations() {
   return prisma.localOperation.findMany({
     where: { status: { in: ["PENDING", "RETRY_SCHEDULED", "IN_PROGRESS", "RETRY"] } },
-    orderBy: { createdAt: "asc" }
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }]
   });
 }
 
@@ -553,7 +575,7 @@ export async function recoverInProgressLocalOperations(now = new Date()) {
 export async function getConflictLocalOperations() {
   return prisma.localOperation.findMany({
     where: { status: "CONFLICT" },
-    orderBy: { updatedAt: "desc" }
+    orderBy: [{ updatedAt: "desc" }, { id: "asc" }]
   });
 }
 
@@ -981,7 +1003,7 @@ export function listRetryableQueueItems(now = new Date()) {
       status: { in: ["PENDING", "RETRY"] },
       OR: [{ nextRetryAt: null }, { nextRetryAt: { lte: now } }]
     },
-    orderBy: { createdAt: "asc" }
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }]
   });
 }
 
