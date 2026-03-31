@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain } from "electron";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "./ipc-channels.js";
@@ -180,6 +181,11 @@ async function createWindow() {
       await mainWindow.loadURL(reactDevUrl);
       return;
     } catch {
+      const builtReactIndex = join(app.getAppPath(), "desktop", "react", "dist", "index.html");
+      if (existsSync(builtReactIndex)) {
+        await mainWindow.loadFile(builtReactIndex);
+        return;
+      }
       await mainWindow.loadFile(join(app.getAppPath(), "desktop", "react-shell.html"));
       return;
     }
