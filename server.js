@@ -28,6 +28,7 @@ const runtimePaths = getRuntimePaths();
 const root = normalize(join(runtimePaths.appRoot, "desktop"));
 const port = Number(process.env.PORT || 4173);
 let repositoriesModulePromise = null;
+let syncRepoModulePromise = null;
 let clientsModulePromise = null;
 let inventoryModulePromise = null;
 let appointmentsModulePromise = null;
@@ -39,6 +40,13 @@ function loadRepositoriesModule() {
     repositoriesModulePromise = import("./src/db/repositories.js");
   }
   return repositoriesModulePromise;
+}
+
+function loadSyncRepoModule() {
+  if (!syncRepoModulePromise) {
+    syncRepoModulePromise = import("./src/db/repositories/syncRepo.js");
+  }
+  return syncRepoModulePromise;
 }
 
 function loadClientsModule() {
@@ -94,11 +102,11 @@ const getRoutes = {
   "/api/local/inventory": async () => (await loadInventoryModule()).listInventoryBatches(),
   "/api/local/appointments": async () => (await loadAppointmentsModule()).listLocalAppointments(),
   "/api/local/messages": async () => (await loadRepositoriesModule()).listMessages(),
-  "/api/local/sync-queue": async () => (await loadRepositoriesModule()).listSyncQueue(),
-  "/api/local/audit-logs": async () => (await loadRepositoriesModule()).listAuditLogs(),
+  "/api/local/sync-queue": async () => (await loadSyncRepoModule()).listSyncQueue(),
+  "/api/local/audit-logs": async () => (await loadSyncRepoModule()).listAuditLogs(),
   "/api/local/sync/status": getSyncEngineStatus,
-  "/api/local/operations": async () => (await loadRepositoriesModule()).listLocalOperations(),
-  "/api/local/conflicts": async () => (await loadRepositoriesModule()).listConflictOperations(),
+  "/api/local/operations": async () => (await loadSyncRepoModule()).listLocalOperations(),
+  "/api/local/conflicts": async () => (await loadSyncRepoModule()).listConflictOperations(),
   "/api/local/settings": getDesktopSettings,
   "/api/local/app-meta": () => ({
     version: "1.0.0",
@@ -135,7 +143,7 @@ function readJsonBody(req) {
 }
 
 await bootstrapLocalDatabase();
-await (await loadRepositoriesModule()).ensureDeviceState();
+await (await loadSyncRepoModule()).ensureDeviceState();
 await startBackgroundSyncLoop();
 
 createServer(async (req, res) => {
