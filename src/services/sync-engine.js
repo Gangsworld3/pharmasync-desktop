@@ -281,6 +281,14 @@ export async function getCurrentRemoteUser() {
   return body?.data ?? null;
 }
 
+async function fetchAnalytics(path, errorLabel) {
+  const { response, body } = await authorizedJsonRequest(path, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(body?.error?.message || body?.detail || `Failed to fetch ${errorLabel} (${response.status}).`);
+  }
+  return body?.data;
+}
+
 export async function getRemoteDailySales(params = {}) {
   const fromDate = params.from;
   const toDate = params.to;
@@ -288,11 +296,8 @@ export async function getRemoteDailySales(params = {}) {
     throw new Error("daily-sales requires from and to dates.");
   }
   const query = new URLSearchParams({ from: fromDate, to: toDate });
-  const { response, body } = await authorizedJsonRequest(`/analytics/daily-sales?${query.toString()}`, { method: "GET" });
-  if (!response.ok) {
-    throw new Error(body?.error?.message || body?.detail || `Failed to fetch daily sales (${response.status}).`);
-  }
-  return body?.data ?? [];
+  const data = await fetchAnalytics(`/analytics/daily-sales?${query.toString()}`, "daily sales");
+  return data ?? [];
 }
 
 export async function getRemoteTopMedicines(params = {}) {
@@ -303,21 +308,15 @@ export async function getRemoteTopMedicines(params = {}) {
     throw new Error("top-medicines requires from and to dates.");
   }
   const query = new URLSearchParams({ from: fromDate, to: toDate, limit: String(limit) });
-  const { response, body } = await authorizedJsonRequest(`/analytics/top-medicines?${query.toString()}`, { method: "GET" });
-  if (!response.ok) {
-    throw new Error(body?.error?.message || body?.detail || `Failed to fetch top medicines (${response.status}).`);
-  }
-  return body?.data ?? [];
+  const data = await fetchAnalytics(`/analytics/top-medicines?${query.toString()}`, "top medicines");
+  return data ?? [];
 }
 
 export async function getRemoteExpiryLoss(params = {}) {
   const days = Number(params.days ?? 30);
   const query = new URLSearchParams({ days: String(days) });
-  const { response, body } = await authorizedJsonRequest(`/analytics/expiry-loss?${query.toString()}`, { method: "GET" });
-  if (!response.ok) {
-    throw new Error(body?.error?.message || body?.detail || `Failed to fetch expiry loss (${response.status}).`);
-  }
-  return body?.data ?? null;
+  const data = await fetchAnalytics(`/analytics/expiry-loss?${query.toString()}`, "expiry loss");
+  return data ?? null;
 }
 
 function parsePayloadJson(raw) {
