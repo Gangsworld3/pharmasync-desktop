@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
+import importlib
 from datetime import datetime
 
 import pytest
 from sqlmodel import select
 
-from app.core.config import settings
 from app.db.models import ConflictQueue
 
 
@@ -268,10 +268,11 @@ async def test_appointment_sync_rejects_non_utc_schedule_payload(async_client, a
 
 @pytest.mark.asyncio
 async def test_appointment_suggestion_payload_deterministic_across_dst(async_client, auth_headers, db_session, unique_suffix, monkeypatch):
-    monkeypatch.setattr(settings, "appointment_timezone", "Europe/Berlin")
-    monkeypatch.setattr(settings, "appointment_slot_step_minutes", 30)
-    monkeypatch.setattr(settings, "appointment_workday_start_hour", 8)
-    monkeypatch.setattr(settings, "appointment_workday_end_hour", 18)
+    live_settings = importlib.import_module("app.core.config").settings
+    monkeypatch.setattr(live_settings, "appointment_timezone", "Europe/Berlin")
+    monkeypatch.setattr(live_settings, "appointment_slot_step_minutes", 30)
+    monkeypatch.setattr(live_settings, "appointment_workday_start_hour", 8)
+    monkeypatch.setattr(live_settings, "appointment_workday_end_hour", 18)
 
     client_id = await _create_client(async_client, auth_headers, unique_suffix)
     create_response = await async_client.post(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -10,7 +11,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
-from app.core.config import settings
 from app.db.models import Client, Invoice, MessageEvent, User
 from app.db.repos import (
     SYNC_ENTITY_MODELS,
@@ -58,9 +58,14 @@ DEFAULT_APPOINTMENT_WORKDAY_END_HOUR = 18
 DEFAULT_APPOINTMENT_SUGGESTION_MAX_ATTEMPTS = 7 * 24 * 4
 
 
+def _settings():
+    # Resolve settings lazily to remain stable across config module reloads in tests.
+    return importlib.import_module("app.core.config").settings
+
+
 def _configured_appointment_zone() -> ZoneInfo:
     try:
-        return ZoneInfo(settings.appointment_timezone)
+        return ZoneInfo(_settings().appointment_timezone)
     except ZoneInfoNotFoundError:
         return ZoneInfo("UTC")
 
@@ -91,22 +96,22 @@ def _is_valid_utc_iso_datetime_string(value: str) -> bool:
 
 
 def _slot_step_minutes() -> int:
-    step = int(settings.appointment_slot_step_minutes or DEFAULT_APPOINTMENT_SLOT_STEP_MINUTES)
+    step = int(_settings().appointment_slot_step_minutes or DEFAULT_APPOINTMENT_SLOT_STEP_MINUTES)
     return min(max(step, 5), 120)
 
 
 def _workday_start_hour() -> int:
-    start = int(settings.appointment_workday_start_hour or DEFAULT_APPOINTMENT_WORKDAY_START_HOUR)
+    start = int(_settings().appointment_workday_start_hour or DEFAULT_APPOINTMENT_WORKDAY_START_HOUR)
     return min(max(start, 0), 22)
 
 
 def _workday_end_hour() -> int:
-    end = int(settings.appointment_workday_end_hour or DEFAULT_APPOINTMENT_WORKDAY_END_HOUR)
+    end = int(_settings().appointment_workday_end_hour or DEFAULT_APPOINTMENT_WORKDAY_END_HOUR)
     return min(max(end, _workday_start_hour() + 1), 23)
 
 
 def _suggestion_max_attempts() -> int:
-    attempts = int(settings.appointment_suggestion_max_attempts or DEFAULT_APPOINTMENT_SUGGESTION_MAX_ATTEMPTS)
+    attempts = int(_settings().appointment_suggestion_max_attempts or DEFAULT_APPOINTMENT_SUGGESTION_MAX_ATTEMPTS)
     return min(max(attempts, 24), 7 * 24 * 12)
 
 
@@ -667,7 +672,7 @@ def _apply_stale_write_policy(
             conflict["strictFields"] = strict_fields
             conflict["expectedServerRevision"] = existing.server_revision
             conflict["providedLocalRevision"] = local_revision
-            conflict["timezone"] = settings.appointment_timezone
+            conflict["timezone"] = _settings().appointment_timezone
             staff_name, starts_at, ends_at = _resolve_appointment_schedule_basis(existing, data)
             if staff_name and starts_at and ends_at:
                 suggestions = _appointment_suggestions(
@@ -684,7 +689,7 @@ def _apply_stale_write_policy(
                     "staff_name": staff_name,
                     "starts_at": starts_at.isoformat(),
                     "ends_at": ends_at.isoformat(),
-                    "timezone": settings.appointment_timezone,
+                    "timezone": _settings().appointment_timezone,
                 }
             _enqueue_and_append_conflict(
                 session=session,
@@ -937,14 +942,14 @@ def handle_sync_push(
                             data["ends_at"],
                             tenant_id=tenant_id,
                         )
-                        conflict["timezone"] = settings.appointment_timezone
+                        conflict["timezone"] = _settings().appointment_timezone
                         conflict["serverSuggestedNextSlots"] = suggestions
                         conflict["suggestions"] = suggestions
                         conflict["scheduleContext"] = {
                             "staff_name": data["staff_name"],
                             "starts_at": data["starts_at"].isoformat(),
                             "ends_at": data["ends_at"].isoformat(),
-                            "timezone": settings.appointment_timezone,
+                            "timezone": _settings().appointment_timezone,
                         }
                         enqueue_conflict(
                             session,
