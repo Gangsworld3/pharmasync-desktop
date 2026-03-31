@@ -32,6 +32,8 @@ runs/*.json
 dev.db
 prisma/dev.db
 prisma/dev.db-journal
+prisma/dev.db-shm
+prisma/dev.db-wal
 runtime/*.db
 runtime/*.sqlite*
 runtime/data/*.db
