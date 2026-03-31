@@ -37,6 +37,7 @@ runtime/*.sqlite*
 runtime/data/*.db
 runtime/data/*.db-shm
 runtime/data/*.db-wal
+runtime/test-runs/
 runtime/session.json
 desktop/runtime/*.db
 desktop/runtime/*.sqlite*
