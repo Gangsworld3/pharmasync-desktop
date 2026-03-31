@@ -2,6 +2,7 @@ import logging
 import time
 from uuid import uuid4
 from contextlib import asynccontextmanager
+from importlib import import_module
 
 from fastapi import FastAPI, HTTPException
 from fastapi import Request
@@ -13,17 +14,6 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 
 from app.api.errors import error_response, map_error_code
 from app.api.responses import success_response
-from app.api.routes_appointments import router as appointments_router
-from app.api.routes_analytics import router as analytics_router
-from app.api.routes_auth import router as auth_router
-from app.api.routes_clients import router as clients_router
-from app.api.routes_conflicts import router as conflicts_router
-from app.api.routes_inventory import router as inventory_router
-from app.api.routes_invoices import router as invoices_router
-from app.api.routes_mobile import router as mobile_router
-from app.api.routes_messages import router as messages_router
-from app.api.routes_sync import router as sync_router
-from app.api.routes_tenants import router as tenants_router
 from app.core.config import settings
 from app.core.health import database_ready, redis_ready
 from app.core.logging import configure_logging
@@ -203,14 +193,22 @@ def root():
     return success_response({"service": settings.app_name, "status": "ok"})
 
 
-app.include_router(auth_router)
-app.include_router(analytics_router)
-app.include_router(clients_router)
-app.include_router(conflicts_router)
-app.include_router(inventory_router)
-app.include_router(appointments_router)
-app.include_router(messages_router)
-app.include_router(invoices_router)
-app.include_router(mobile_router)
-app.include_router(sync_router)
-app.include_router(tenants_router)
+def _include_api_routers(application: FastAPI) -> None:
+    for module_path in (
+        "app.api.routes_auth",
+        "app.api.routes_analytics",
+        "app.api.routes_clients",
+        "app.api.routes_conflicts",
+        "app.api.routes_inventory",
+        "app.api.routes_appointments",
+        "app.api.routes_messages",
+        "app.api.routes_invoices",
+        "app.api.routes_mobile",
+        "app.api.routes_sync",
+        "app.api.routes_tenants",
+    ):
+        module = import_module(module_path)
+        application.include_router(module.router)
+
+
+_include_api_routers(app)
