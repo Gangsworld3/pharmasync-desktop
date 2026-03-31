@@ -8,7 +8,7 @@ const uiMode = process.env.PHARMASYNC_UI_MODE === "react" ? "react" : "legacy";
 const reactDevUrl = process.env.PHARMASYNC_REACT_DEV_URL || "http://127.0.0.1:5173";
 const localApiBase = "http://127.0.0.1:4173";
 let syncEngineModulePromise = null;
-let repositoriesModulePromise = null;
+let summaryRepoModulePromise = null;
 let clientServiceModulePromise = null;
 let inventoryServiceModulePromise = null;
 let appointmentServiceModulePromise = null;
@@ -21,11 +21,11 @@ function loadSyncEngineModule() {
   return syncEngineModulePromise;
 }
 
-function loadRepositoriesModule() {
-  if (!repositoriesModulePromise) {
-    repositoriesModulePromise = import("../src/db/repositories.js");
+function loadSummaryRepoModule() {
+  if (!summaryRepoModulePromise) {
+    summaryRepoModulePromise = import("../src/db/repositories/summaryRepo.js");
   }
-  return repositoriesModulePromise;
+  return summaryRepoModulePromise;
 }
 
 function loadClientServiceModule() {
@@ -60,7 +60,7 @@ const ipcHandlers = Object.freeze({
   [IPC_CHANNELS.AUTH_GET_CURRENT_USER]: async () => (await loadSyncEngineModule()).getCurrentRemoteUser(),
   [IPC_CHANNELS.SYNC_STATUS]: async () => (await loadSyncEngineModule()).getSyncEngineStatus(),
   [IPC_CHANNELS.SYNC_RUN]: async () => (await loadSyncEngineModule()).runSyncCycle(),
-  [IPC_CHANNELS.SUMMARY_GET]: async () => (await loadRepositoriesModule()).getOfflineSummary(),
+  [IPC_CHANNELS.SUMMARY_GET]: async () => (await loadSummaryRepoModule()).getOfflineSummary(),
   [IPC_CHANNELS.ANALYTICS_DAILY_SALES]: async (payload = {}) => (await loadSyncEngineModule()).getRemoteDailySales(payload),
   [IPC_CHANNELS.ANALYTICS_TOP_MEDICINES]: async (payload = {}) => (await loadSyncEngineModule()).getRemoteTopMedicines(payload),
   [IPC_CHANNELS.ANALYTICS_EXPIRY_LOSS]: async (payload = {}) => (await loadSyncEngineModule()).getRemoteExpiryLoss(payload),
