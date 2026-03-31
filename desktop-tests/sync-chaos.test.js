@@ -8,7 +8,7 @@ import {
   ensureDeviceState,
   recoverInProgressLocalOperations,
   updateLocalOperation
-} from "../src/db/repositories.js";
+} from "../src/db/repositories/syncRepo.js";
 import { resolveDesktopConflict } from "../src/services/offline-service.js";
 import { getSyncEngineStatus, pushPendingChanges, runSyncCycle } from "../src/services/sync-engine.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";

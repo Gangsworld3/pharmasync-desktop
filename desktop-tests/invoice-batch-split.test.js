@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import "../src/db/init-sqlite.js";
 import { prisma } from "../src/db/client.js";
-import { createLocalClient } from "../src/db/repositories.js";
+import { createLocalClient } from "../src/db/repositories/clientRepo.js";
 import { createInvoiceTransaction } from "../src/services/offline-service.js";
 
 function isoDaysFromNow(days) {

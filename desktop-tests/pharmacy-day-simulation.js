@@ -2,7 +2,7 @@ import "../src/db/init-sqlite.js";
 
 import { randomUUID } from "node:crypto";
 import { prisma } from "../src/db/client.js";
-import { createLocalClient } from "../src/db/repositories.js";
+import { createLocalClient } from "../src/db/repositories/clientRepo.js";
 import { createInvoiceTransaction } from "../src/services/offline-service.js";
 import { selectFEFOBatch } from "../desktop/src/domain/fefo.js";
 

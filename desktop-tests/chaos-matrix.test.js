@@ -5,12 +5,12 @@ import "../src/db/init-sqlite.js";
 import { prisma } from "../src/db/client.js";
 import {
   appendLocalOperation,
-  createLocalClient,
-  createLocalAppointment,
   ensureDeviceState,
   recoverInProgressLocalOperations,
   updateLocalOperation
-} from "../src/db/repositories.js";
+} from "../src/db/repositories/syncRepo.js";
+import { createLocalClient } from "../src/db/repositories/clientRepo.js";
+import { createLocalAppointment } from "../src/db/repositories/appointmentRepo.js";
 import { resolveDesktopConflict } from "../src/services/offline-service.js";
 import { getSyncEngineStatus, pushPendingChanges, runSyncCycle } from "../src/services/sync-engine.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";

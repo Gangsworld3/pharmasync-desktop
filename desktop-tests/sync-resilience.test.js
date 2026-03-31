@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import "../src/db/init-sqlite.js";
 import { prisma } from "../src/db/client.js";
-import { appendLocalOperation, ensureDeviceState, updateLocalOperation } from "../src/db/repositories.js";
+import { appendLocalOperation, ensureDeviceState, updateLocalOperation } from "../src/db/repositories/syncRepo.js";
 import { pushPendingChanges } from "../src/services/sync-engine.js";
 import { mapConflict } from "../src/services/sync-conflict-adapter.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";

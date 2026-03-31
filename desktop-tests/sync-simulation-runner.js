@@ -7,7 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { prisma } from "../src/db/client.js";
-import { appendLocalOperation, ensureDeviceState } from "../src/db/repositories.js";
+import { appendLocalOperation, ensureDeviceState } from "../src/db/repositories/syncRepo.js";
 import { pushPendingChanges } from "../src/services/sync-engine.js";
 import { saveDesktopSession } from "../src/services/desktop-runtime.js";
 
