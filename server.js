@@ -3,49 +3,46 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 // External/local HTTP API surface for web/mobile and legacy desktop shell.
 // Electron IPC now calls service layer directly.
-import "./src/db/init-sqlite.js";
-import { bootstrapLocalDatabase } from "./src/db/bootstrap.js";
 import {
+  bootstrapLocalDatabase,
   ensureDeviceState,
   getOfflineSummary,
   listConflictOperations,
   listAuditLogs,
   listLocalOperations,
   listMessages,
-  listSyncQueue,
-} from "./src/db/repositories.js";
+  listSyncQueue
+} from "./src/db/index.js";
 import {
-  resolveDesktopConflict,
-  resolveConflict,
-  runSyncRetryCycle
-} from "./src/services/offline-service.js";
-import {
+  adjustInventoryBatch,
   authenticateDesktopSession,
+  createAppointment,
+  createClient,
+  createInventoryBatch,
+  createInvoice,
   getCurrentRemoteUser,
+  getDesktopSettings,
   getRemoteDailySales,
   getRemoteExpiryLoss,
   getRemoteTopMedicines,
+  getRuntimePaths,
   getSyncEngineStatus,
+  listInventoryBatches,
+  listLocalAppointments,
+  listLocalClients,
+  listLocalInvoices,
   logoutDesktopSession,
   recordLocalOperation,
+  resolveConflict,
+  resolveDesktopConflict,
   runSyncCycle,
-  startBackgroundSyncLoop
-} from "./src/services/sync-engine.js";
-import { listLocalClients, createClient, updateClient } from "./src/services/client-service.js";
-import {
-  listInventoryBatches,
-  createInventoryBatch,
+  runSyncRetryCycle,
+  saveDesktopSettings,
+  startBackgroundSyncLoop,
+  updateClient,
   updateInventoryBatch,
-  adjustInventoryBatch
-} from "./src/services/inventory-service.js";
-import { listLocalInvoices, createInvoice } from "./src/services/sales-service.js";
-import { listLocalAppointments, createAppointment } from "./src/services/appointment-service.js";
-import {
-  exportLocalDatabase,
-  getDesktopSettings,
-  getRuntimePaths,
-  saveDesktopSettings
-} from "./src/services/desktop-runtime.js";
+  exportLocalDatabase
+} from "./src/services/index.js";
 
 const runtimePaths = getRuntimePaths();
 const root = normalize(join(runtimePaths.appRoot, "desktop"));
