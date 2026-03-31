@@ -11,7 +11,7 @@ export default function CalendarView({ appointments = [], statusMessage = "", er
   const rows = appointments.map((row) => ({
     id: row.id,
     time: formatSlot(row.startsAt),
-    name: row.client?.name ?? row.clientId ?? "Unknown client",
+    name: row.client?.fullName ?? row.client?.name ?? row.clientId ?? "Unknown client",
     type: row.serviceType ?? "Consultation",
     status: row.status ?? "PENDING"
   }));

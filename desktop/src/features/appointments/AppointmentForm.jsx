@@ -17,7 +17,11 @@ export default function AppointmentForm({ clients = [], onSubmit, isSubmitting =
   const [notes, setNotes] = useState("");
 
   const sortedClients = useMemo(
-    () => [...clients].sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? ""))),
+    () => [...clients].sort((a, b) => {
+      const left = String(a.fullName ?? a.name ?? "");
+      const right = String(b.fullName ?? b.name ?? "");
+      return left.localeCompare(right);
+    }),
     [clients]
   );
 
@@ -52,7 +56,7 @@ export default function AppointmentForm({ clients = [], onSubmit, isSubmitting =
         <select value={clientId} onChange={(event) => setClientId(event.target.value)} required>
           <option value="">Select client</option>
           {sortedClients.map((client) => (
-            <option key={client.id} value={client.id}>{client.name}</option>
+            <option key={client.id} value={client.id}>{client.fullName ?? client.name ?? client.id}</option>
           ))}
         </select>
       </label>
