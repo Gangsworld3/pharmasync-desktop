@@ -18,14 +18,3 @@ export async function startLoop({ repo, state, realtime, cycle, config, clock },
   setNextScheduledAt(new Date(clock.nowMs() + initialDelay));
   setSyncTimer(clock.setTimeout(schedule, initialDelay));
 }
-
-export function stopLoop({ state, realtime, clock }) {
-  const { getSyncTimer, setSyncTimer, setNextScheduledAt } = state;
-  const timer = getSyncTimer();
-  if (timer) {
-    clock.clearTimeout(timer);
-    setSyncTimer(null);
-  }
-  realtime.stop();
-  setNextScheduledAt(null);
-}
