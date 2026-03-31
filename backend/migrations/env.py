@@ -32,6 +32,15 @@ target_metadata = SQLModel.metadata
 # ... etc.
 
 
+def _normalize_runtime_url(url: str) -> str:
+    normalized = url.strip().strip("\"'")
+    if normalized.startswith("postgres://"):
+        return normalized.replace("postgres://", "postgresql+psycopg://", 1)
+    if normalized.startswith("postgresql://"):
+        return normalized.replace("postgresql://", "postgresql+psycopg://", 1)
+    return normalized
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -44,7 +53,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = settings.database_url
+    url = _normalize_runtime_url(settings.database_url)
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -65,7 +74,7 @@ def run_migrations_online() -> None:
 
     """
     section = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = settings.database_url
+    section["sqlalchemy.url"] = _normalize_runtime_url(settings.database_url)
 
     connectable = engine_from_config(
         section,
