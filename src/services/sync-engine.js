@@ -31,7 +31,7 @@ import { mapConflict } from "./sync-conflict-adapter.js";
 import { runPushOrchestrator } from "./sync-push/index.js";
 import { runPullOrchestrator } from "./sync-pull/index.js";
 import { runSyncCycle as runSyncCyclePipeline } from "./sync-cycle-runner.js";
-import { startLoop, stopLoop } from "./sync-loop.js";
+import { startLoop } from "./sync-loop.js";
 import { createApiClientPort, createClockPort, createOperationRepoPort } from "./ports/index.js";
 
 let syncTimer = null;
@@ -641,8 +641,4 @@ function buildLoopContext() {
 
 export async function startBackgroundSyncLoop(intervalMs = null) {
   return startLoop(buildLoopContext(), intervalMs);
-}
-
-export function stopBackgroundSyncLoop() {
-  return stopLoop(buildLoopContext());
 }

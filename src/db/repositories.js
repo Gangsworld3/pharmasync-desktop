@@ -504,10 +504,6 @@ export async function updateLocalOperation(id, data) {
   }
 }
 
-export async function getLocalOperationByOperationId(operationId) {
-  return prisma.localOperation.findUnique({ where: { operationId } });
-}
-
 export async function getPendingLocalOperations() {
   return prisma.localOperation.findMany({
     where: { status: { in: ["PENDING", "RETRY_SCHEDULED", "IN_PROGRESS", "RETRY"] } },
@@ -968,13 +964,3 @@ export function markQueueItemState(id, data) {
   return prisma.syncQueue.update({ where: { id }, data });
 }
 
-export async function resolveLocalConflictOperation(conflictId, resolution = "resolved") {
-  return prisma.localOperation.update({
-    where: { id: conflictId },
-    data: {
-      status: "RESOLVED",
-      errorDetail: resolution,
-      updatedAt: new Date()
-    }
-  });
-}
