@@ -55,6 +55,24 @@ def _resolve_database_url() -> str:
     return LOCAL_DEV_DATABASE_URL
 
 
+def _resolve_cors_origins() -> list[str]:
+    raw = os.getenv("PHARMASYNC_CORS_ORIGINS") or os.getenv("CORS_ORIGINS")
+    if raw:
+        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+        if origins:
+            return origins
+
+    if _is_production():
+        return []
+
+    return [
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+
 class Settings(BaseSettings):
     app_name: str = "PharmaSync FastAPI"
     env: str = os.getenv("ENV", "development")
@@ -75,6 +93,7 @@ class Settings(BaseSettings):
     appointment_workday_end_hour: int = 18
     appointment_suggestion_max_attempts: int = 672
     log_level: str = "INFO"
+    cors_origins: list[str] = _resolve_cors_origins()
     default_admin_email: str = "admin@pharmasync.local"
     default_admin_password: str = _resolve_admin_password()
     database_url: str = _resolve_database_url()
