@@ -120,6 +120,30 @@ function parseJsonSafe(raw) {
   }
 }
 
+function saveAuthenticatedSession({ accessToken, email, role, tenantId }) {
+  saveDesktopSession({
+    accessToken,
+    email,
+    role: role ?? null,
+    tenantId: tenantId ?? null,
+    createdAt: new Date().toISOString()
+  });
+}
+
+async function loginRemote({ baseUrl, email, password }) {
+  const response = await fetch(`${baseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Remote authentication failed (${response.status}).`);
+  }
+
+  return response.json();
+}
+
 function buildRepoPort() {
   return createOperationRepoPort({
     ensureDeviceState,
@@ -152,24 +176,13 @@ async function getAuthHeaders(forceRefresh = false) {
   }
 
   if (!authToken && email && password) {
-    const response = await fetch(`${baseUrl}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Remote authentication failed (${response.status}).`);
-    }
-
-    const payload = await response.json();
+    const payload = await loginRemote({ baseUrl, email, password });
     authToken = payload.data.access_token;
-    saveDesktopSession({
+    saveAuthenticatedSession({
       accessToken: authToken,
       email,
-      role: payload.data.role ?? null,
-      tenantId: payload.data.tenant_id ?? null,
-      createdAt: new Date().toISOString()
+      role: payload.data.role,
+      tenantId: payload.data.tenant_id
     });
   }
 
@@ -243,24 +256,13 @@ async function authorizedJsonRequest(path, init) {
 
 export async function authenticateDesktopSession(email, password) {
   const { baseUrl } = getRemoteConfig();
-  const response = await fetch(`${baseUrl}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Remote authentication failed (${response.status}).`);
-  }
-
-  const payload = await response.json();
+  const payload = await loginRemote({ baseUrl, email, password });
   authToken = payload.data.access_token;
-  saveDesktopSession({
+  saveAuthenticatedSession({
     accessToken: authToken,
     email,
-    role: payload.data.role ?? null,
-    tenantId: payload.data.tenant_id ?? null,
-    createdAt: new Date().toISOString()
+    role: payload.data.role,
+    tenantId: payload.data.tenant_id
   });
   appendDesktopLog("sync.log", `auth success email=${email}`);
   return { email, authenticated: true };
