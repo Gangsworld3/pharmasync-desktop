@@ -412,8 +412,33 @@ export function listSyncQueue() {
   return prisma.syncQueue.findMany({ orderBy: { createdAt: "desc" } });
 }
 
-export function runLocalTransaction(callback) {
-  return prisma.$transaction(callback);
+function isSqliteLockedError(error) {
+  const message = String(error?.message ?? "");
+  return message.toLowerCase().includes("database is locked");
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function runLocalTransaction(callback) {
+  const maxAttempts = Number(process.env.PHARMASYNC_SQLITE_TX_MAX_ATTEMPTS ?? 4);
+  const baseDelayMs = Number(process.env.PHARMASYNC_SQLITE_TX_RETRY_BASE_MS ?? 20);
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await prisma.$transaction(callback);
+    } catch (error) {
+      if (!isSqliteLockedError(error) || attempt === maxAttempts) {
+        throw error;
+      }
+
+      const delayMs = baseDelayMs * attempt;
+      await wait(delayMs);
+    }
+  }
+
+  throw new Error("Unexpected transaction retry flow state.");
 }
 
 export function listAuditLogs() {
