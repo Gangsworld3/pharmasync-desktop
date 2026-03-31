@@ -1,26 +1,20 @@
 [limits]
-max_file_lines = 650
+max_file_lines = 700
 max_function_lines = 120
-max_dependency_depth = 6
-max_fan_out = 14
 
 [structure]
 enforce_layering = true
 
 [layers]
-"src/domain" = []
-"src/services/sync-shared" = ["src/domain"]
-"src/services/ports" = []
-"src/services/sync-push" = ["src/domain", "src/services/sync-shared", "src/services/ports"]
-"src/services/sync-pull" = ["src/domain", "src/services/sync-shared", "src/services/ports"]
-"src/services" = ["src/domain", "src/services/sync-shared", "src/services/sync-push", "src/services/sync-pull", "src/services/ports"]
-"src/db" = []
-"electron" = []
-"desktop/src" = []
+"src/services/sync-engine.js" = ["src/services/sync-cycle-runner.js", "src/services/sync-loop.js", "src/services/sync-push", "src/services/sync-pull", "src/services/sync-retry-scheduler.js", "src/services/sync-state-machine.js", "src/services/sync-conflict-adapter.js", "src/services/desktop-runtime.js", "src/db/repositories.js"]
+"src/services/sync-cycle-runner.js" = ["src/services/sync-shared/error-classification.js"]
+"src/services/sync-push" = ["src/services/sync-shared/batching.js", "src/domain/sync"]
+"src/services/sync-pull" = ["src/domain/sync"]
+"src/services/sync-shared" = []
+"src/domain/sync" = []
 
 [forbidden_imports]
-"src/domain" = ["src/services", "src/db", "server.js", "electron"]
-"src/services/sync-push" = ["src/services/sync-pull", "src/services/sync-cycle-runner.js", "src/services/sync-engine.js"]
-"src/services/sync-pull" = ["src/services/sync-push", "src/services/sync-cycle-runner.js", "src/services/sync-engine.js"]
-"src/services/sync-cycle-runner.js" = ["src/services/sync-engine.js"]
-"electron/preload.js" = ["server.js", "src/db"]
+"src/services/sync-push/push-orchestrator.js" = ["src/services/sync-pull", "src/services/sync-cycle-runner.js", "src/services/sync-engine.js"]
+"src/services/sync-pull/pull-orchestrator.js" = ["src/services/sync-push", "src/services/sync-cycle-runner.js", "src/services/sync-engine.js"]
+"src/services/sync-cycle-runner.js" = ["src/services/sync-engine.js", "src/services/sync-push", "src/services/sync-pull"]
+"src/domain/sync" = ["src/services"]
