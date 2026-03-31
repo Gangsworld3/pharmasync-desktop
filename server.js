@@ -27,26 +27,34 @@ import {
 const runtimePaths = getRuntimePaths();
 const root = normalize(join(runtimePaths.appRoot, "desktop"));
 const port = Number(process.env.PORT || 4173);
-let repositoriesModulePromise = null;
 let syncRepoModulePromise = null;
+let summaryRepoModulePromise = null;
+let messageRepoModulePromise = null;
 let clientsModulePromise = null;
 let inventoryModulePromise = null;
 let appointmentsModulePromise = null;
 let salesModulePromise = null;
 let offlineModulePromise = null;
 
-function loadRepositoriesModule() {
-  if (!repositoriesModulePromise) {
-    repositoriesModulePromise = import("./src/db/repositories.js");
-  }
-  return repositoriesModulePromise;
-}
-
 function loadSyncRepoModule() {
   if (!syncRepoModulePromise) {
     syncRepoModulePromise = import("./src/db/repositories/syncRepo.js");
   }
   return syncRepoModulePromise;
+}
+
+function loadSummaryRepoModule() {
+  if (!summaryRepoModulePromise) {
+    summaryRepoModulePromise = import("./src/db/repositories/summaryRepo.js");
+  }
+  return summaryRepoModulePromise;
+}
+
+function loadMessageRepoModule() {
+  if (!messageRepoModulePromise) {
+    messageRepoModulePromise = import("./src/db/repositories/messageRepo.js");
+  }
+  return messageRepoModulePromise;
 }
 
 function loadClientsModule() {
@@ -96,12 +104,12 @@ const mimeTypes = {
 };
 
 const getRoutes = {
-  "/api/local/summary": async () => (await loadRepositoriesModule()).getOfflineSummary(),
+  "/api/local/summary": async () => (await loadSummaryRepoModule()).getOfflineSummary(),
   "/api/local/clients": async () => (await loadClientsModule()).listLocalClients(),
   "/api/local/invoices": async () => (await loadSalesModule()).listLocalInvoices(),
   "/api/local/inventory": async () => (await loadInventoryModule()).listInventoryBatches(),
   "/api/local/appointments": async () => (await loadAppointmentsModule()).listLocalAppointments(),
-  "/api/local/messages": async () => (await loadRepositoriesModule()).listMessages(),
+  "/api/local/messages": async () => (await loadMessageRepoModule()).listMessages(),
   "/api/local/sync-queue": async () => (await loadSyncRepoModule()).listSyncQueue(),
   "/api/local/audit-logs": async () => (await loadSyncRepoModule()).listAuditLogs(),
   "/api/local/sync/status": getSyncEngineStatus,
