@@ -417,14 +417,6 @@ function isSqliteLockedError(error) {
   return message.toLowerCase().includes("database is locked");
 }
 
-function isPrismaRecordMissingError(error) {
-  if (error?.code === "P2025") {
-    return true;
-  }
-  const message = String(error?.message ?? "").toLowerCase();
-  return message.includes("record") && message.includes("not found");
-}
-
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -533,22 +525,23 @@ export function appendLocalOperation(entryOrTx, maybeEntry) {
 }
 
 export async function updateLocalOperation(id, data) {
-  try {
-    return await withSqliteLockRetry(() => prisma.localOperation.update({
-      where: { id },
-      data: {
-        ...data,
-        conflictPayloadJson: data.conflictPayloadJson ? JSON.stringify(data.conflictPayloadJson) : data.conflictPayloadJson,
-        updatedAt: new Date()
-      }
-    }));
-  } catch (error) {
-    // Retry/chaos flows can race with operation cleanup; treat missing rows as no-op.
-    if (isPrismaRecordMissingError(error)) {
-      return null;
-    }
-    throw error;
+  const normalizedData = {
+    ...data,
+    conflictPayloadJson: data.conflictPayloadJson ? JSON.stringify(data.conflictPayloadJson) : data.conflictPayloadJson,
+    updatedAt: new Date()
+  };
+
+  const updated = await withSqliteLockRetry(() => prisma.localOperation.updateMany({
+    where: { id },
+    data: normalizedData
+  }));
+
+  // Retry/chaos flows can race with operation cleanup; treat missing rows as no-op.
+  if (updated.count === 0) {
+    return null;
   }
+
+  return prisma.localOperation.findUnique({ where: { id } });
 }
 
 export async function getPendingLocalOperations() {
