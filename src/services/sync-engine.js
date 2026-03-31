@@ -1,5 +1,4 @@
 import {
-  appendMessageFromServer,
   appendLocalOperation,
   ensureDeviceState,
   getConflictLocalOperations,
@@ -7,12 +6,15 @@ import {
   getPendingLocalOperations,
   recoverInProgressLocalOperations,
   updateDeviceState,
-  updateLocalOperation,
+  updateLocalOperation
+} from "../db/repositories/syncRepo.js";
+import {
+  appendMessageFromServer,
   upsertAppointmentFromServer,
   upsertClientFromServer,
   upsertInventoryFromServer,
   upsertInvoiceFromServer
-} from "../db/repositories.js";
+} from "../db/repositories/syncApplyRepo.js";
 import {
   appendDesktopLog,
   appendDesktopJsonLog,

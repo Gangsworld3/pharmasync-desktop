@@ -1,4 +1,4 @@
-import { createLocalAppointment, listAppointments } from "../db/repositories.js";
+import { createLocalAppointment, listAppointments } from "../db/repositories/appointmentRepo.js";
 
 export function listLocalAppointments() {
   return listAppointments();
