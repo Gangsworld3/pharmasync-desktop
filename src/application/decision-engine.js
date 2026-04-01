@@ -5,6 +5,10 @@ export class DecisionEngine {
   constructor({ intelligence, health }) {
     this.intelligence = intelligence;
     this.health = health;
+    this.thresholds = {
+      pressure: 100
+    };
+    this.safeModeBiasEnabled = false;
   }
 
   decide(context) {
@@ -12,9 +16,9 @@ export class DecisionEngine {
     let strategy = "normal";
 
     // Global override (system under stress)
-    if (healthState.pressure > 100) {
+    if (healthState.pressure > this.thresholds.pressure) {
       strategy = "throttle";
-    } else if (healthState.instability > 0.5) {
+    } else if (healthState.instability > (this.safeModeBiasEnabled ? 0.4 : 0.5)) {
       strategy = "safe-mode";
     } else {
       // Delegate to execution intelligence
@@ -32,5 +36,15 @@ export class DecisionEngine {
     );
 
     return decision;
+  }
+
+  adjustThreshold(name, value) {
+    if (name === "pressure" && Number.isFinite(Number(value))) {
+      this.thresholds.pressure = Number(value);
+    }
+  }
+
+  enableSafeModeBias() {
+    this.safeModeBiasEnabled = true;
   }
 }
