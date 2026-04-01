@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n/i18n.js";
 import ExpiryList from "./ExpiryList.jsx";
+import { callIpc, IPC_CHANNELS } from "../../lib/ipc-client.js";
 
 function daysUntil(value) {
   if (!value) return Number.POSITIVE_INFINITY;
@@ -24,8 +25,8 @@ export default function ExpiryDashboard() {
 
   useEffect(() => {
     async function load() {
-      if (!window.api) return;
-      const inventory = await window.api.listInventory();
+      if (!window.api?.invoke) return;
+      const inventory = await callIpc(IPC_CHANNELS.INVENTORY_LIST);
       setRows(inventory);
       setStatus(`Loaded ${inventory.length} inventory batches`);
     }

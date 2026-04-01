@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
+import { callIpc, IPC_CHANNELS } from "../lib/ipc-client.js";
 
 const UserContext = createContext({
   currentUser: null,
@@ -13,7 +14,7 @@ export function UserProvider({ children }) {
   const [userError, setUserError] = useState("");
 
   async function refreshUser() {
-    if (!window.api?.getCurrentUser) {
+    if (!window.api?.invoke) {
       setCurrentUser(null);
       setUserError("Current user API is not available.");
       setIsLoadingUser(false);
@@ -22,7 +23,7 @@ export function UserProvider({ children }) {
 
     try {
       setIsLoadingUser(true);
-      const user = await window.api.getCurrentUser();
+      const user = await callIpc(IPC_CHANNELS.AUTH_GET_CURRENT_USER);
       setCurrentUser(user);
       setUserError("");
     } catch (error) {
@@ -47,4 +48,3 @@ export function UserProvider({ children }) {
 export function useCurrentUser() {
   return useContext(UserContext);
 }
-

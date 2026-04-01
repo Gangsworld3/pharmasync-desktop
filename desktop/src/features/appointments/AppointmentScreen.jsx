@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import CalendarView from "./CalendarView.jsx";
 import AppointmentForm from "./AppointmentForm.jsx";
+import { callIpc, IPC_CHANNELS } from "../../lib/ipc-client.js";
 
 export default function AppointmentScreen() {
   const [appointments, setAppointments] = useState([]);
@@ -10,11 +11,11 @@ export default function AppointmentScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function loadData() {
-    if (!window.api) return;
+    if (!window.api?.invoke) return;
     try {
       const [appointmentRows, clientRows] = await Promise.all([
-        window.api.listAppointments(),
-        window.api.listClients()
+        callIpc(IPC_CHANNELS.APPOINTMENTS_LIST),
+        callIpc(IPC_CHANNELS.CLIENTS_LIST)
       ]);
       setAppointments(Array.isArray(appointmentRows) ? appointmentRows : []);
       setClients(Array.isArray(clientRows) ? clientRows : []);
@@ -30,11 +31,11 @@ export default function AppointmentScreen() {
   }, []);
 
   async function handleCreate(payload) {
-    if (!window.api) return;
+    if (!window.api?.invoke) return;
     setIsSubmitting(true);
     setError("");
     try {
-      await window.api.createAppointment(payload);
+      await callIpc(IPC_CHANNELS.APPOINTMENTS_CREATE, payload);
       setStatus("Appointment created.");
       await loadData();
     } catch (createError) {

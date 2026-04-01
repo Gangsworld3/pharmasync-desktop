@@ -3,6 +3,7 @@ import AddStockModal from "./AddStockModal.jsx";
 import StockTable from "./StockTable.jsx";
 import { expiryStatus } from "../../domain/expiry.js";
 import { useCurrentUser } from "../../app/user-context.jsx";
+import { callIpc, IPC_CHANNELS } from "../../lib/ipc-client.js";
 
 export default function InventoryScreen() {
   const { currentUser } = useCurrentUser();
@@ -16,9 +17,9 @@ export default function InventoryScreen() {
   const [error, setError] = useState("");
 
   async function loadInventory() {
-    if (!window.api) return;
+    if (!window.api?.invoke) return;
     try {
-      const inventory = await window.api.listInventory();
+      const inventory = await callIpc(IPC_CHANNELS.INVENTORY_LIST);
       setRows(inventory);
       setStatus(`Loaded ${inventory.length} batches`);
     } catch (loadError) {
@@ -43,14 +44,14 @@ export default function InventoryScreen() {
       setError("Inventory mutations are not allowed for your role.");
       return;
     }
-    if (!window.api) return;
+    if (!window.api?.invoke) return;
     setError("");
     try {
       if (editingBatch) {
-        await window.api.updateInventoryBatch(editingBatch.id, payload);
+        await callIpc(IPC_CHANNELS.INVENTORY_UPDATE, { batchId: editingBatch.id, payload });
         setStatus("Batch updated.");
       } else {
-        await window.api.createInventoryBatch(payload);
+        await callIpc(IPC_CHANNELS.INVENTORY_CREATE, payload);
         setStatus("Batch added.");
       }
       setOpen(false);
@@ -66,10 +67,10 @@ export default function InventoryScreen() {
       setError("Inventory mutations are not allowed for your role.");
       return;
     }
-    if (!window.api) return;
+    if (!window.api?.invoke) return;
     setError("");
     try {
-      await window.api.adjustInventoryBatch(row.id, delta, "inventory-quick-adjust");
+      await callIpc(IPC_CHANNELS.INVENTORY_ADJUST, { batchId: row.id, delta, reason: "inventory-quick-adjust" });
       setStatus(`Adjusted ${row.name} (${delta > 0 ? "+" : ""}${delta}).`);
       await loadInventory();
     } catch (adjustError) {

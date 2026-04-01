@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useCurrentUser } from "../../app/user-context.jsx";
+import { callIpc, IPC_CHANNELS } from "../../lib/ipc-client.js";
 
 function isoDate(daysAgo = 0) {
   const dt = new Date();
@@ -24,16 +25,16 @@ export default function AnalyticsDashboard() {
   }, [currentUser]);
 
   async function loadAnalytics() {
-    if (!window.api || !canViewAnalytics) {
+    if (!window.api?.invoke || !canViewAnalytics) {
       return;
     }
     try {
       setError("");
       setStatus("Loading analytics...");
       const [daily, top, expiry] = await Promise.all([
-        window.api.getDailySalesAnalytics({ from: fromDate, to: toDate }),
-        window.api.getTopMedicinesAnalytics({ from: fromDate, to: toDate, limit: 10 }),
-        window.api.getExpiryLossAnalytics({ days: daysWindow })
+        callIpc(IPC_CHANNELS.ANALYTICS_DAILY_SALES, { from: fromDate, to: toDate }),
+        callIpc(IPC_CHANNELS.ANALYTICS_TOP_MEDICINES, { from: fromDate, to: toDate, limit: 10 }),
+        callIpc(IPC_CHANNELS.ANALYTICS_EXPIRY_LOSS, { days: daysWindow })
       ]);
       setDailySales(daily ?? []);
       setTopMedicines(top ?? []);
@@ -136,4 +137,3 @@ export default function AnalyticsDashboard() {
     </section>
   );
 }
-

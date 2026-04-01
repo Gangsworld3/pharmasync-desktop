@@ -4,6 +4,7 @@ import CartTable from "./CartTable.jsx";
 import PaymentPanel from "./PaymentPanel.jsx";
 import { isNearExpiry, selectFEFOBatch } from "../../domain/fefo.js";
 import { getLang } from "../../i18n/i18n.js";
+import { callIpc, IPC_CHANNELS } from "../../lib/ipc-client.js";
 
 function resolveUnitPriceMinor(item) {
   if (Number.isFinite(Number(item.salePriceMinor))) return Number(item.salePriceMinor);
@@ -72,15 +73,15 @@ export default function SalesScreen() {
     let mounted = true;
 
     async function loadInitialData() {
-      if (!window.api) {
+      if (!window.api?.invoke) {
         setError("Electron API bridge is not available.");
         return;
       }
 
       try {
         const [inventoryRows, clientRows] = await Promise.all([
-          window.api.listInventory(),
-          window.api.listClients()
+          callIpc(IPC_CHANNELS.INVENTORY_LIST),
+          callIpc(IPC_CHANNELS.CLIENTS_LIST)
         ]);
         if (!mounted) return;
 
@@ -158,7 +159,7 @@ export default function SalesScreen() {
   }
 
   async function completeSale() {
-    if (!window.api) return;
+    if (!window.api?.invoke) return;
     if (!cart.length || !selectedClientId) return;
 
     const nearExpiryItems = cart.filter((item) => isNearExpiry(item.expiry));
@@ -196,10 +197,10 @@ export default function SalesScreen() {
           totalMinor: item.qty * item.unitPriceMinor,
           paymentMethod
         };
-        const created = await window.api.createInvoice(payload);
+        const created = await callIpc(IPC_CHANNELS.INVOICES_CREATE, payload);
         invoices.push(created?.invoice?.invoiceNumber ?? payload.invoiceNumber);
       }
-      await window.api.runSync();
+      await callIpc(IPC_CHANNELS.SYNC_RUN);
       setStatus("Sale created and sync triggered.");
       setLastReceipt({
         language: getLang(),
@@ -218,9 +219,9 @@ export default function SalesScreen() {
   }
 
   async function printReceipt() {
-    if (!window.api || !lastReceipt) return;
+    if (!window.api?.invoke || !lastReceipt) return;
     try {
-      await window.api.printReceipt(lastReceipt);
+      await callIpc(IPC_CHANNELS.RECEIPT_PRINT, lastReceipt);
       setStatus("Receipt sent to printer.");
     } catch (printError) {
       setError(printError.message ?? "Failed to print receipt.");
