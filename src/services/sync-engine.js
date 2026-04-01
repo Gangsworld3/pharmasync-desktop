@@ -29,6 +29,9 @@ import {
   markSyncStart as markSyncStartHelper,
   sortServerChanges
 } from "./sync-engine-helpers.js";
+import { DecisionEngine } from "../application/decision-engine.js";
+import { ExecutionIntelligence } from "../application/execution-intelligence.js";
+import { metrics } from "../application/metrics.js";
 
 let syncTimer = null;
 let syncInFlight = false;
@@ -36,6 +39,17 @@ let retryBackoffMs = 0;
 let nextScheduledAt = null;
 const clockPort = syncPorts.createClockPort();
 const readRemoteConfig = () => getRemoteConfig(desktopSession);
+const intelligence = new ExecutionIntelligence({ metrics });
+const decisionEngine = new DecisionEngine({
+  intelligence,
+  health: () => {
+    const snapshot = metrics.snapshot();
+    return {
+      pressure: Number(snapshot?.counters?.["sync.pressure"] ?? 0),
+      instability: Number(snapshot?.counters?.["sync.instability"] ?? 0)
+    };
+  }
+});
 
 function logSyncEvent(event, payload = {}) {
   desktopLog.appendDesktopJsonLog("sync.log", {
@@ -227,7 +241,32 @@ function buildCycleContext() {
   };
 }
 
+function pauseSync() {
+  logSyncEvent("sync.paused", {
+    reason: "safe-mode"
+  });
+  return {
+    status: "paused",
+    reason: "safe-mode"
+  };
+}
+
 export async function runSyncCycle() {
+  const systemState = {
+    isOffline: !Boolean(readRemoteConfig().baseUrl),
+    syncInFlight,
+    retryBackoffMs
+  };
+
+  const decision = decisionEngine.decide({
+    operation: { type: "sync" },
+    systemState
+  });
+
+  if (decision.action === "safe-mode") {
+    return pauseSync();
+  }
+
   return runSyncCyclePipeline(buildCycleContext());
 }
 
