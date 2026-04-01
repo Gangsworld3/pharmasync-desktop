@@ -84,12 +84,45 @@ jobs:
       - name: Check Alembic migration drift
         env:
           PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync
-          PHARMASYNC_JWT_SECRET: test-pharmasync-jwt-secret-32-bytes-min
+          PHARMASYNC_JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789
           PHARMASYNC_DEFAULT_ADMIN_EMAIL: admin@pharmasync.local
-          PHARMASYNC_DEFAULT_ADMIN_PASSWORD: Admin123!
+          PHARMASYNC_DEFAULT_ADMIN_PASSWORD: StrongAdmin-1234!
         run: |
           python -m alembic upgrade head
+          python -m alembic current
           python -m alembic check
+
+      - name: Validate production env discipline
+        env:
+          ENV: production
+          PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync
+          PHARMASYNC_JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789
+          PHARMASYNC_DEFAULT_ADMIN_PASSWORD: StrongAdmin-1234!
+        run: |
+          python backend/scripts/prestart_env_guard.py
+
+      - name: Startup health gate (must be healthy)
+        env:
+          ENV: production
+          PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync
+          PHARMASYNC_JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789
+          PHARMASYNC_DEFAULT_ADMIN_EMAIL: admin@pharmasync.local
+          PHARMASYNC_DEFAULT_ADMIN_PASSWORD: StrongAdmin-1234!
+          SMOKE_BASE_URL: http://127.0.0.1:10000
+          SMOKE_ADMIN_EMAIL: admin@pharmasync.local
+          SMOKE_ADMIN_PASSWORD: StrongAdmin-1234!
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 10000 --app-dir backend > backend-uvicorn.log 2>&1 &
+          APP_PID=$!
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:10000/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          python backend/scripts/predeploy_check.py --skip-migrate --base-url "$SMOKE_BASE_URL" --admin-email "$SMOKE_ADMIN_EMAIL" --admin-password "$SMOKE_ADMIN_PASSWORD"
+          kill "$APP_PID" || true
+          wait "$APP_PID" || true
 
       - name: Run integration tests
         env:

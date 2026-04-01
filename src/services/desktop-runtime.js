@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, appen
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
+import { redactSecrets } from "./secret-redaction.js";
 
 const DEFAULT_SETTINGS = {
   backendUrl: process.env.PHARMASYNC_DEFAULT_BACKEND_URL ?? "https://pharmasync-backend.onrender.com",
@@ -94,7 +95,8 @@ export function exportLocalDatabase() {
 
 export function appendDesktopLog(fileName, message) {
   const { logsDir } = ensureRuntimeDirectories();
-  appendFileSync(join(logsDir, fileName), `[${new Date().toISOString()}] ${message}\n`);
+  const safeMessage = redactSecrets(String(message));
+  appendFileSync(join(logsDir, fileName), `[${new Date().toISOString()}] ${safeMessage}\n`);
 }
 
 export function appendDesktopJsonLog(fileName, payload) {
@@ -109,7 +111,8 @@ export function appendDesktopJsonLog(fileName, payload) {
     }
   }
 
-  appendFileSync(filePath, `${JSON.stringify(payload)}\n`);
+  const safePayload = redactSecrets(payload);
+  appendFileSync(filePath, `${JSON.stringify(safePayload)}\n`);
 }
 
 export function getDatabasePath() {
