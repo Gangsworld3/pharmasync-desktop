@@ -7,9 +7,9 @@
   "main": "electron/main.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "electron:dev": "electron electron/main.js",
+    "start": "set DESKTOP_MODE=ipc&& electron electron/main.js",
+    "dev": "set DESKTOP_MODE=ipc&& electron electron/main.js",
+    "electron:dev": "set DESKTOP_MODE=ipc&& electron electron/main.js",
     "react:dev": "vite --config desktop/react/vite.config.js",
     "react:build": "vite build --config desktop/react/vite.config.js",
     "react:preview": "vite preview --config desktop/react/vite.config.js",
@@ -58,7 +58,6 @@
       "prisma/**/*",
       "backend/**/*",
       "electron/**/*",
-      "server.js",
       "package.json"
     ],
     "directories": {

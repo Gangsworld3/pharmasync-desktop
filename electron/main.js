@@ -1,16 +1,18 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "./ipc-channels.js";
 import { createEventBus } from "../src/application/event-bus.js";
 import { createDesktopOrchestrator } from "../src/application/desktop-orchestrator.js";
 import { appendAppJsonLog } from "../src/application/app-logger.js";
 
 let mainWindow = null;
-const uiMode = process.env.PHARMASYNC_UI_MODE === "legacy" ? "legacy" : "react";
+process.env.DESKTOP_MODE = process.env.DESKTOP_MODE || "ipc";
+if (process.env.DESKTOP_MODE !== "ipc") {
+  throw new Error("Unsupported runtime mode");
+}
+
 const reactDevUrl = process.env.PHARMASYNC_REACT_DEV_URL || "http://127.0.0.1:5173";
-const localApiBase = "http://127.0.0.1:4173";
 
 const eventBus = createEventBus({
   logger: (filename, payload) => appendAppJsonLog(filename, payload)
@@ -124,16 +126,6 @@ function registerIpcHandlers() {
   ipcMain.handle(IPC_CHANNELS.RECEIPT_PRINT, async (_event, payload) => printReceipt(payload));
 }
 
-async function bootDesktopServer() {
-  process.env.PORT = process.env.PORT || "4173";
-  process.env.PHARMASYNC_DATA_DIR = process.env.PHARMASYNC_DATA_DIR || app.getPath("userData");
-  const appPath = app.getAppPath();
-  const directServerPath = join(appPath, "server.js");
-  const parentServerPath = join(appPath, "..", "server.js");
-  const serverEntry = existsSync(directServerPath) ? directServerPath : parentServerPath;
-  await import(pathToFileURL(serverEntry).href);
-}
-
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1480,
@@ -148,26 +140,20 @@ async function createWindow() {
     }
   });
 
-  if (uiMode === "react") {
-    try {
-      await mainWindow.loadURL(reactDevUrl);
-      return;
-    } catch (error) {
-      console.warn(`[electron] React dev server unavailable at ${reactDevUrl}: ${error?.message ?? "load failure"}`);
-      const builtReactIndex = join(app.getAppPath(), "desktop", "react", "dist", "index.html");
-      if (existsSync(builtReactIndex)) {
-        console.warn(`[electron] Falling back to built React bundle: ${builtReactIndex}`);
-        await mainWindow.loadFile(builtReactIndex);
-        return;
-      }
-      console.warn("[electron] Falling back to react-shell placeholder.");
-      await mainWindow.loadFile(join(app.getAppPath(), "desktop", "react-shell.html"));
+  try {
+    await mainWindow.loadURL(reactDevUrl);
+    return;
+  } catch (error) {
+    console.warn(`[electron] React dev server unavailable at ${reactDevUrl}: ${error?.message ?? "load failure"}`);
+    const builtReactIndex = join(app.getAppPath(), "desktop", "react", "dist", "index.html");
+    if (existsSync(builtReactIndex)) {
+      console.warn(`[electron] Falling back to built React bundle: ${builtReactIndex}`);
+      await mainWindow.loadFile(builtReactIndex);
       return;
     }
+    console.warn("[electron] Falling back to react-shell placeholder.");
+    await mainWindow.loadFile(join(app.getAppPath(), "desktop", "react-shell.html"));
   }
-
-  await bootDesktopServer();
-  await mainWindow.loadURL(`${localApiBase}/`);
 }
 
 app.whenReady().then(async () => {
