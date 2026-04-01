@@ -2,11 +2,6 @@
 
 This runbook deploys the backend API to Render for multi-device sync.
 
-Deployment policy:
-
-- Render is the only supported production deployment target for this repository.
-- Legacy Fly deploy workflow has been retired to prevent split operational paths.
-
 ## 1) Prerequisites
 
 - GitHub repo is up to date.
