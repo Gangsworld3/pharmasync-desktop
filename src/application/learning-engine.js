@@ -1,8 +1,9 @@
 import { learningAudit } from "./learning-audit.js";
 
 export class LearningEngine {
-  constructor({ decisionEngine }) {
+  constructor({ decisionEngine, logger = console }) {
     this.decisionEngine = decisionEngine;
+    this.logger = logger;
     this.enabled = true;
   }
 
@@ -12,7 +13,10 @@ export class LearningEngine {
 
   apply(patterns) {
     if (!this.enabled) return;
-    if (patterns.confidence < 0.5) return;
+    if (patterns.confidence < 0.5) {
+      this.logger?.debug?.("Learning skipped: low confidence", patterns);
+      return;
+    }
 
     if (patterns.frequentSafeMode) {
       this.decisionEngine.adjustThreshold("pressure", 85);
