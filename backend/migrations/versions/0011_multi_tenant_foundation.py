@@ -21,32 +21,41 @@ TENANT_DEFAULT = "default"
 
 
 def _add_tenant_column(table_name: str) -> None:
-    op.add_column(
-        table_name,
-        sa.Column(
-            "tenant_id",
-            sa.String(length=64),
-            nullable=False,
-            server_default=TENANT_DEFAULT,
-        ),
+    op.execute(
+        sa.text(
+            f"ALTER TABLE IF EXISTS {table_name} "
+            "ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) NOT NULL DEFAULT 'default'"
+        )
     )
-    op.create_index(f"ix_{table_name}_tenant_id", table_name, ["tenant_id"], unique=False)
+    op.execute(
+        sa.text(
+            f"CREATE INDEX IF NOT EXISTS ix_{table_name}_tenant_id "
+            f"ON {table_name} (tenant_id)"
+        )
+    )
 
 
 def upgrade() -> None:
-    op.create_table(
-        "tenants",
-        sa.Column("id", sa.String(length=64), nullable=False),
-        sa.Column("name", sa.String(length=255), nullable=False),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.PrimaryKeyConstraint("id"),
+    op.execute(
+        sa.text(
+            """
+            CREATE TABLE IF NOT EXISTS tenants (
+              id VARCHAR(64) PRIMARY KEY,
+              name VARCHAR(255) NOT NULL,
+              is_active BOOLEAN NOT NULL DEFAULT true,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
     )
 
     bind = op.get_bind()
     bind.execute(
-        sa.text("INSERT INTO tenants (id, name, is_active) VALUES (:tenant_id, :name, true)"),
+        sa.text(
+            "INSERT INTO tenants (id, name, is_active) VALUES (:tenant_id, :name, true) "
+            "ON CONFLICT (id) DO NOTHING"
+        ),
         {"tenant_id": TENANT_DEFAULT, "name": "Default Tenant"},
     )
 
