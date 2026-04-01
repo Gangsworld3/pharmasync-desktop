@@ -30,6 +30,11 @@ from app.db.repos import (
     touch_for_update,
 )
 from app.services.invoice_service import InvoiceItemInput, create_invoice
+from app.services.sync_push_validation import (
+    parse_crdt_meta as _parse_crdt_meta,
+    parse_invoice_items as _parse_invoice_items,
+    validate_change as _validate_change,
+)
 
 ENTITY_FIELDS: dict[str, set[str]] = {
     "Client": {"client_code", "full_name", "phone", "email", "preferred_language", "city", "notes"},
@@ -83,18 +88,6 @@ def _parse_datetime_value(value: Any) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _is_valid_utc_iso_datetime_string(value: str) -> bool:
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    if parsed.tzinfo is None:
-        return False
-    if parsed.utcoffset() != timedelta(0):
-        return False
-    return value.endswith("Z") or value.endswith("+00:00")
-
-
 def _slot_step_minutes() -> int:
     step = int(_settings().appointment_slot_step_minutes or DEFAULT_APPOINTMENT_SLOT_STEP_MINUTES)
     return min(max(step, 5), 120)
@@ -127,26 +120,6 @@ def _filtered_payload(entity: str, data: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def _parse_crdt_meta(change: dict[str, Any]) -> tuple[list[str], dict[str, int]]:
-    raw_data = change.get("data", {})
-    raw_crdt = raw_data.get("_crdt") if isinstance(raw_data, dict) else None
-    if not isinstance(raw_crdt, dict):
-        return [], {}
-
-    raw_changed_fields = raw_crdt.get("changedFields", [])
-    changed_fields = [str(field) for field in raw_changed_fields if isinstance(field, str)]
-    raw_field_clocks = raw_crdt.get("fieldClocks", {})
-    field_clocks: dict[str, int] = {}
-    if isinstance(raw_field_clocks, dict):
-        for field_name, clock in raw_field_clocks.items():
-            if isinstance(field_name, str):
-                try:
-                    field_clocks[field_name] = max(0, int(clock))
-                except (TypeError, ValueError):
-                    continue
-    return changed_fields, field_clocks
-
-
 def _conflict_payload(
     conflict_type: str,
     entity_name: str,
@@ -164,47 +137,6 @@ def _conflict_payload(
     if server is not None:
         payload["server"] = server
     return payload
-
-
-def _parse_invoice_items(data: dict[str, Any]) -> list[InvoiceItemInput]:
-    parsed_items: list[InvoiceItemInput] = []
-    for item in data.get("items", []):
-        inventory_sku = item.get("inventory_sku") or item.get("sku")
-        quantity = item.get("quantity", item.get("qty"))
-        parsed_items.append(
-            InvoiceItemInput(
-                inventory_sku=inventory_sku,
-                quantity=Decimal(str(quantity)),
-                unit_price_minor=item.get("unit_price_minor"),
-                description=item.get("description"),
-            )
-        )
-    return parsed_items
-
-
-def _validate_change(change: dict[str, Any]) -> None:
-    if not change.get("operationId"):
-        raise ValueError("Missing operationId.")
-    if change.get("entity") not in SYNC_ENTITY_MODELS:
-        raise ValueError(f"Unsupported entity: {change.get('entity')}.")
-    if change.get("operation", "").upper() not in {"CREATE", "UPDATE", "DELETE"}:
-        raise ValueError(f"Unsupported operation: {change.get('operation')}.")
-    if not change.get("entityId"):
-        raise ValueError("Missing entityId.")
-    if change.get("entity") == "Message" and change.get("operation", "").upper() != "CREATE":
-        raise ValueError("Messages are append-only and only support CREATE.")
-    if change.get("entity") == "Appointment" and change.get("operation", "").upper() in {"CREATE", "UPDATE"}:
-        payload_data = change.get("data", {})
-        if isinstance(payload_data, dict):
-            for field in ("starts_at", "ends_at"):
-                if field not in payload_data:
-                    continue
-                value = payload_data[field]
-                if not isinstance(value, str) or not _is_valid_utc_iso_datetime_string(value):
-                    raise ValueError(
-                        f"Invalid {field}. Appointment sync payloads must use UTC ISO timestamps "
-                        "(e.g. 2026-04-01T09:00:00Z)."
-                    )
 
 
 def _apply_client_crdt_merge(
@@ -813,7 +745,7 @@ def handle_sync_push(
             raise
 
     for change in payload["changes"]:
-        _validate_change(change)
+        _validate_change(change, sync_entity_models=SYNC_ENTITY_MODELS)
         operation_id = change["operationId"]
         entity_name = change["entity"]
         entity_id = change["entityId"]
@@ -986,7 +918,7 @@ def handle_sync_push(
                     create_invoice(
                         session,
                         invoice,
-                        _parse_invoice_items(data),
+                        _parse_invoice_items(data, invoice_item_input_cls=InvoiceItemInput),
                         device_id=device_id,
                         operation_id=operation_id,
                         actor_user_id=current_user.id if current_user else None,
