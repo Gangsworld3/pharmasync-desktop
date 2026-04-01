@@ -33,7 +33,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@flydotio/litestream": "^1.0.1",
     "@prisma/adapter-better-sqlite3": "^7.6.0",
     "@prisma/client": "7.6.0",
     "better-sqlite3": "^12.8.0",
@@ -44,7 +43,6 @@
     "react-router-dom": "^7.13.2"
   },
   "devDependencies": {
-    "@flydotio/dockerfile": "^0.7.10",
     "@vitejs/plugin-react": "^6.0.1",
     "electron": "^37.2.0",
     "electron-builder": "^26.0.12",
@@ -76,8 +74,5 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
     }
-  },
-  "dockerfile": {
-    "litestream": true
   }
 }
