@@ -1,28 +1,4 @@
-import {
-  appendLocalOperation,
-  ensureDeviceState,
-  getConflictLocalOperations,
-  getDeviceState,
-  getPendingLocalOperations,
-  recoverInProgressLocalOperations,
-  updateDeviceState,
-  updateLocalOperation
-} from "../db/repositories/syncRepo.js";
-import {
-  appendMessageFromServer,
-  upsertAppointmentFromServer,
-  upsertClientFromServer,
-  upsertInventoryFromServer,
-  upsertInvoiceFromServer
-} from "../db/repositories/syncApplyRepo.js";
-import {
-  appendDesktopLog,
-  appendDesktopJsonLog,
-  clearDesktopSession,
-  getDesktopSession,
-  getDesktopSettings,
-  saveDesktopSession
-} from "./desktop-runtime.js";
+import { desktopLog, desktopSession, syncApplyRepo, syncPorts, syncRepo } from "./sync-deps.js";
 import {
   getDeferredState,
   sanitizePositiveNumber,
@@ -30,11 +6,10 @@ import {
 } from "./sync-retry-scheduler.js";
 import { transition } from "./sync-state-machine.js";
 import { mapConflict } from "./sync-conflict-adapter.js";
-import { runPushOrchestrator } from "./sync-push/index.js";
-import { runPullOrchestrator } from "./sync-pull/index.js";
+import { runPushOrchestrator } from "./sync-push/push-orchestrator.js";
+import { runPullOrchestrator } from "./sync-pull/pull-orchestrator.js";
 import { runSyncCycle as runSyncCyclePipeline } from "./sync-cycle-runner.js";
 import { startLoop } from "./sync-loop.js";
-import { createApiClientPort, createClockPort, createOperationRepoPort } from "./ports/index.js";
 
 let syncTimer = null;
 let syncInFlight = false;
@@ -56,10 +31,10 @@ const DEFAULT_MAX_OPERATION_ATTEMPTS = 8;
 const DEFAULT_REALTIME_RETRY_BASE_MS = 3000;
 const DEFAULT_REALTIME_RETRY_MAX_MS = 120000;
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
-const clockPort = createClockPort();
+const clockPort = syncPorts.createClockPort();
 
 function getRemoteConfig() {
-  const settings = getDesktopSettings();
+  const settings = desktopSession.getDesktopSettings();
   const syncIntervalMs = Number(settings.syncIntervalMs ?? process.env.PHARMASYNC_SYNC_INTERVAL_MS ?? DEFAULT_SYNC_INTERVAL_MS);
 
   return {
@@ -90,7 +65,7 @@ function jitterMs(baseMs) {
 }
 
 function logSyncEvent(event, payload = {}) {
-  appendDesktopJsonLog("sync.log", {
+  desktopLog.appendDesktopJsonLog("sync.log", {
     event,
     at: new Date().toISOString(),
     ...payload
@@ -123,7 +98,7 @@ function parseJsonSafe(raw) {
 }
 
 function saveAuthenticatedSession({ accessToken, email, role, tenantId }) {
-  saveDesktopSession({
+  desktopSession.saveDesktopSession({
     accessToken,
     email,
     role: role ?? null,
@@ -147,27 +122,27 @@ async function loginRemote({ baseUrl, email, password }) {
 }
 
 function buildRepoPort() {
-  return createOperationRepoPort({
-    ensureDeviceState,
-    getPendingLocalOperations,
-    getConflictLocalOperations,
-    recoverInProgressLocalOperations,
-    updateDeviceState,
+  return syncPorts.createOperationRepoPort({
+    ensureDeviceState: syncRepo.ensureDeviceState,
+    getPendingLocalOperations: syncRepo.getPendingLocalOperations,
+    getConflictLocalOperations: syncRepo.getConflictLocalOperations,
+    recoverInProgressLocalOperations: syncRepo.recoverInProgressLocalOperations,
+    updateDeviceState: syncRepo.updateDeviceState,
     applyOperationTransition,
     applyServerChange,
-    appendLocalOperation
+    appendLocalOperation: syncRepo.appendLocalOperation
   });
 }
 
 async function applyOperationTransition(operation, event, context = {}) {
   const result = transition(operation, event, context);
-  await updateLocalOperation(operation.id, result.patch);
+  await syncRepo.updateLocalOperation(operation.id, result.patch);
   return result.nextState;
 }
 
 async function getAuthHeaders(forceRefresh = false) {
   const { baseUrl, email, password } = getRemoteConfig();
-  const session = getDesktopSession();
+  const session = desktopSession.getDesktopSession();
 
   if (forceRefresh) {
     authToken = null;
@@ -273,14 +248,14 @@ export async function authenticateDesktopSession(email, password) {
     role: payload.data.role,
     tenantId: payload.data.tenant_id
   });
-  appendDesktopLog("sync.log", `auth success email=${email}`);
+  desktopLog.appendDesktopLog("sync.log", `auth success email=${email}`);
   return { email, authenticated: true };
 }
 
 export function logoutDesktopSession() {
   authToken = null;
-  clearDesktopSession();
-  appendDesktopLog("sync.log", "auth logout");
+  desktopSession.clearDesktopSession();
+  desktopLog.appendDesktopLog("sync.log", "auth logout");
   return { authenticated: false };
 }
 
@@ -347,7 +322,7 @@ async function startRealtimeSyncListener() {
     return;
   }
 
-  const session = getDesktopSession();
+  const session = desktopSession.getDesktopSession();
   if (!session?.accessToken) {
     return;
   }
@@ -366,14 +341,14 @@ async function startRealtimeSyncListener() {
       const wsUrl = buildWebSocketUrl(baseUrl, session.accessToken);
       realtimeSocket = new WebSocket(wsUrl);
     } catch (error) {
-      appendDesktopLog("error.log", `sync realtime connect failure detail=${error.message}`);
+      desktopLog.appendDesktopLog("error.log", `sync realtime connect failure detail=${error.message}`);
       scheduleReconnect(retryBase, retryMax);
       return;
     }
 
     realtimeSocket.onopen = () => {
       realtimeReconnectMs = 0;
-      appendDesktopLog("sync.log", "sync realtime connected");
+      desktopLog.appendDesktopLog("sync.log", "sync realtime connected");
     };
 
     realtimeSocket.onmessage = (event) => {
@@ -468,8 +443,8 @@ function buildSyncResultSummary(results = []) {
 }
 
 async function markSyncStart(deviceState) {
-  appendDesktopLog("sync.log", `sync start device=${deviceState.deviceId}`);
-  return updateDeviceState({
+  desktopLog.appendDesktopLog("sync.log", `sync start device=${deviceState.deviceId}`);
+  return syncRepo.updateDeviceState({
     deviceId: deviceState.deviceId,
     syncStatus: "SYNCING",
     lastSyncStartedAt: new Date(),
@@ -479,8 +454,8 @@ async function markSyncStart(deviceState) {
 }
 
 async function markSyncFinish(deviceState, revision) {
-  appendDesktopLog("sync.log", `sync success device=${deviceState.deviceId} revision=${revision}`);
-  return updateDeviceState({
+  desktopLog.appendDesktopLog("sync.log", `sync success device=${deviceState.deviceId} revision=${revision}`);
+  return syncRepo.updateDeviceState({
     deviceId: deviceState.deviceId,
     syncStatus: "SYNCED",
     lastPulledRevision: revision,
@@ -491,8 +466,8 @@ async function markSyncFinish(deviceState, revision) {
 }
 
 async function markSyncFailure(deviceState, error) {
-  appendDesktopLog("error.log", `sync failure device=${deviceState.deviceId} detail=${error.message}`);
-  return updateDeviceState({
+  desktopLog.appendDesktopLog("error.log", `sync failure device=${deviceState.deviceId} detail=${error.message}`);
+  return syncRepo.updateDeviceState({
     deviceId: deviceState.deviceId,
     syncStatus: "ERROR",
     lastSyncError: error.message,
@@ -502,13 +477,13 @@ async function markSyncFailure(deviceState, error) {
 }
 
 export async function recordLocalOperation(entry) {
-  return appendLocalOperation(entry);
+  return syncRepo.appendLocalOperation(entry);
 }
 
 function buildPushContext() {
   return {
     repo: buildRepoPort(),
-    api: createApiClientPort({ authorizedJsonRequest }),
+    api: syncPorts.createApiClientPort({ authorizedJsonRequest }),
     clock: clockPort,
     config: { get: getRemoteConfig },
     policy: {
@@ -538,15 +513,15 @@ export async function pushPendingChanges() {
 async function applyServerChange(change) {
   switch (change.entity) {
     case "Client":
-      return upsertClientFromServer(change);
+      return syncApplyRepo.upsertClientFromServer(change);
     case "InventoryItem":
-      return upsertInventoryFromServer(change);
+      return syncApplyRepo.upsertInventoryFromServer(change);
     case "Appointment":
-      return upsertAppointmentFromServer(change);
+      return syncApplyRepo.upsertAppointmentFromServer(change);
     case "Invoice":
-      return upsertInvoiceFromServer(change);
+      return syncApplyRepo.upsertInvoiceFromServer(change);
     case "Message":
-      return appendMessageFromServer(change);
+      return syncApplyRepo.appendMessageFromServer(change);
     default:
       return null;
   }
@@ -555,7 +530,7 @@ async function applyServerChange(change) {
 function buildPullContext() {
   return {
     repo: buildRepoPort(),
-    api: createApiClientPort({ authorizedJsonRequest }),
+    api: syncPorts.createApiClientPort({ authorizedJsonRequest }),
     config: { get: getRemoteConfig },
     helpers: { sortServerChanges }
   };
@@ -602,12 +577,12 @@ export async function runSyncCycle() {
 }
 
 export async function getSyncEngineStatus() {
-  const deviceState = await ensureDeviceState();
+  const deviceState = await syncRepo.ensureDeviceState();
   const [pendingOperations, conflictOperations] = await Promise.all([
-    getPendingLocalOperations(),
-    getConflictLocalOperations()
+    syncRepo.getPendingLocalOperations(),
+    syncRepo.getConflictLocalOperations()
   ]);
-  const session = getDesktopSession();
+  const session = desktopSession.getDesktopSession();
 
   return {
     deviceId: deviceState.deviceId,

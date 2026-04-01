@@ -30,8 +30,8 @@ test("sync service dependency direction is one-way", () => {
 
   assert.equal(cycleSource.includes("sync-engine"), false, "cycle runner must not import engine");
   assert.equal(engineSource.includes("sync-cycle-runner"), true, "engine should wire cycle runner");
-  assert.equal(engineSource.includes("sync-push/index"), true, "engine should wire push orchestrator");
-  assert.equal(engineSource.includes("sync-pull/index"), true, "engine should wire pull orchestrator");
+  assert.equal(engineSource.includes("sync-push/push-orchestrator"), true, "engine should wire push orchestrator");
+  assert.equal(engineSource.includes("sync-pull/pull-orchestrator"), true, "engine should wire pull orchestrator");
 });
 
 test("sync service size budgets stay below threshold", () => {
