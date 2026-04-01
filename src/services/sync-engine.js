@@ -10,6 +10,14 @@ import { runPushOrchestrator } from "./sync-push/push-orchestrator.js";
 import { runPullOrchestrator } from "./sync-pull/pull-orchestrator.js";
 import { runSyncCycle as runSyncCyclePipeline } from "./sync-cycle-runner.js";
 import { startLoop } from "./sync-loop.js";
+import {
+  buildSyncChange,
+  buildSyncResultSummary,
+  markSyncFailure as markSyncFailureHelper,
+  markSyncFinish as markSyncFinishHelper,
+  markSyncStart as markSyncStartHelper,
+  sortServerChanges
+} from "./sync-engine-helpers.js";
 
 let syncTimer = null;
 let syncInFlight = false;
@@ -305,10 +313,6 @@ export async function getRemoteExpiryLoss(params = {}) {
   return data ?? null;
 }
 
-function parsePayloadJson(raw) {
-  return raw ? JSON.parse(raw) : null;
-}
-
 function buildWebSocketUrl(baseUrl, token) {
   const url = new URL(baseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
@@ -403,75 +407,31 @@ function stopRealtimeSyncListener() {
   }
 }
 
-function sortServerChanges(changes) {
-  return [...changes].sort((left, right) => (left.serverRevision ?? 0) - (right.serverRevision ?? 0));
-}
-
-function buildSyncChange(operationRow) {
-  return {
-    operationId: operationRow.operationId,
-    idempotencyKey: operationRow.idempotencyKey ?? operationRow.operationId,
-    entity: operationRow.entityType,
-    operation: operationRow.operation,
-    entityId: operationRow.entityId,
-    localRevision: operationRow.localRevision,
-    data: parsePayloadJson(operationRow.payloadJson)
-  };
-}
-
-function buildSyncResultSummary(results = []) {
-  const summary = {
-    applied: 0,
-    idempotentReplay: 0,
-    conflict: 0,
-    rejected: 0
-  };
-
-  for (const result of results) {
-    if (result.status === "APPLIED") {
-      summary.applied += 1;
-    } else if (result.status === "IDEMPOTENT_REPLAY") {
-      summary.idempotentReplay += 1;
-    } else if (result.status === "CONFLICT") {
-      summary.conflict += 1;
-    } else {
-      summary.rejected += 1;
-    }
-  }
-
-  return summary;
-}
-
 async function markSyncStart(deviceState) {
-  desktopLog.appendDesktopLog("sync.log", `sync start device=${deviceState.deviceId}`);
-  return syncRepo.updateDeviceState({
-    deviceId: deviceState.deviceId,
-    syncStatus: "SYNCING",
-    lastSyncStartedAt: new Date(),
-    lastSyncError: null,
+  return markSyncStartHelper({
+    desktopLog,
+    syncRepo,
+    deviceState,
     remoteBaseUrl: getRemoteConfig().baseUrl
   });
 }
 
 async function markSyncFinish(deviceState, revision) {
-  desktopLog.appendDesktopLog("sync.log", `sync success device=${deviceState.deviceId} revision=${revision}`);
-  return syncRepo.updateDeviceState({
-    deviceId: deviceState.deviceId,
-    syncStatus: "SYNCED",
-    lastPulledRevision: revision,
-    lastSyncCompletedAt: new Date(),
-    lastSyncError: null,
+  return markSyncFinishHelper({
+    desktopLog,
+    syncRepo,
+    deviceState,
+    revision,
     remoteBaseUrl: getRemoteConfig().baseUrl
   });
 }
 
 async function markSyncFailure(deviceState, error) {
-  desktopLog.appendDesktopLog("error.log", `sync failure device=${deviceState.deviceId} detail=${error.message}`);
-  return syncRepo.updateDeviceState({
-    deviceId: deviceState.deviceId,
-    syncStatus: "ERROR",
-    lastSyncError: error.message,
-    lastSyncCompletedAt: new Date(),
+  return markSyncFailureHelper({
+    desktopLog,
+    syncRepo,
+    deviceState,
+    error,
     remoteBaseUrl: getRemoteConfig().baseUrl
   });
 }

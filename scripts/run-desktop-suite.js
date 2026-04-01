@@ -13,6 +13,7 @@ const SUITES = {
     "desktop-tests/ipc-contract.test.js"
   ],
   architecture: [
+    "desktop-tests/render-config-guard.test.js",
     "desktop-tests/sync-dependency-boundaries.test.js",
     "desktop-tests/sync-cycle-runner.test.js",
     "desktop-tests/sync-shared.test.js"

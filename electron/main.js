@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "./ipc-channels.js";
 
 let mainWindow = null;
-const uiMode = process.env.PHARMASYNC_UI_MODE === "react" ? "react" : "legacy";
+const uiMode = process.env.PHARMASYNC_UI_MODE === "legacy" ? "legacy" : "react";
 const reactDevUrl = process.env.PHARMASYNC_REACT_DEV_URL || "http://127.0.0.1:5173";
 const localApiBase = "http://127.0.0.1:4173";
 let syncEngineModulePromise = null;

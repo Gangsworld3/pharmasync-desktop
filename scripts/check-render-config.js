@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const repoRoot = process.cwd();
@@ -56,6 +56,11 @@ for (const key of keys) {
 
 if (raw.includes("postgresql://") || raw.includes("postgres://")) {
   warnings.push("render.yaml contains a raw postgres URI. Confirm it is only in values, never in key names.");
+}
+
+const deprecatedFlyWorkflow = join(repoRoot, ".github", "workflows", "fly-deploy.yml");
+if (existsSync(deprecatedFlyWorkflow)) {
+  errors.push("Deprecated Fly deployment workflow exists. Deployment must be Render-only.");
 }
 
 if (errors.length > 0) {
