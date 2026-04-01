@@ -10,6 +10,7 @@ import {
 } from "./service-interfaces.js";
 import { metrics } from "./metrics.js";
 import { ExecutionIntelligence } from "./execution-intelligence.js";
+import { DecisionEngine } from "./decision-engine.js";
 
 function createLazyLoader(importer) {
   let modulePromise = null;
@@ -60,6 +61,16 @@ export function createDesktopOrchestrator({
   const loadAppointmentService = createLazyLoader(async () => asAppointmentService(await import("../services/appointment-service.js")));
   const loadSalesService = createLazyLoader(async () => asSalesService(await import("../services/sales-service.js")));
   const intelligence = new ExecutionIntelligence({ metrics });
+  const decisionEngine = new DecisionEngine({
+    intelligence,
+    health: () => {
+      const snapshot = metrics.snapshot();
+      return {
+        pressure: Number(snapshot?.counters?.["ipc.request.total"] ?? 0),
+        instability: Number(snapshot?.counters?.["sync.fail.rate"] ?? 0)
+      };
+    }
+  });
   const failureMap = new Map();
 
   const handlers = Object.freeze({
@@ -169,6 +180,30 @@ export function createDesktopOrchestrator({
       };
     };
 
+    const delayExecution = async () => {
+      metrics.increment("ipc.request.throttled");
+      await eventBus.emit("orchestrator.request.throttled", {
+        requestId,
+        channel
+      });
+      return {
+        success: true,
+        data: {
+          throttled: true,
+          channel
+        }
+      };
+    };
+
+    const fallbackExecution = async () => {
+      metrics.increment("ipc.request.safe_mode");
+      await eventBus.emit("orchestrator.request.safe_mode", {
+        requestId,
+        channel
+      });
+      return executeNow();
+    };
+
     const executeNow = async () => {
       try {
         const data = await withTimeout(handler(payload), timeoutMs);
@@ -206,12 +241,16 @@ export function createDesktopOrchestrator({
       }
     };
 
-    const strategy = intelligence.decideStrategy({
+    const decision = decisionEngine.decide({
       operation,
       systemState
     });
 
-    switch (strategy) {
+    switch (decision.action) {
+    case "throttle":
+      return delayExecution();
+    case "safe-mode":
+      return fallbackExecution();
     case "queue":
       return queueOperation();
     case "defer":
