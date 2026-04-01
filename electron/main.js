@@ -200,12 +200,15 @@ async function createWindow() {
     try {
       await mainWindow.loadURL(reactDevUrl);
       return;
-    } catch {
+    } catch (error) {
+      console.warn(`[electron] React dev server unavailable at ${reactDevUrl}: ${error?.message ?? "load failure"}`);
       const builtReactIndex = join(app.getAppPath(), "desktop", "react", "dist", "index.html");
       if (existsSync(builtReactIndex)) {
+        console.warn(`[electron] Falling back to built React bundle: ${builtReactIndex}`);
         await mainWindow.loadFile(builtReactIndex);
         return;
       }
+      console.warn("[electron] Falling back to react-shell placeholder.");
       await mainWindow.loadFile(join(app.getAppPath(), "desktop", "react-shell.html"));
       return;
     }
