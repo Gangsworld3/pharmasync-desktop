@@ -19,6 +19,7 @@ from app.core.health import database_ready, redis_ready
 from app.core.logging import configure_logging
 from app.db.database import Session, engine, init_database
 from app.db import models as _models  # noqa: F401
+from app.startup_guard import run_startup_checks
 from app.services.background_dispatcher import dispatcher
 from app.services.auth_service import ensure_default_admin
 
@@ -38,6 +39,7 @@ REQUEST_LATENCY_SECONDS = Histogram(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    run_startup_checks(engine)
     dispatcher.start()
     init_database()
     with Session(engine) as session:
