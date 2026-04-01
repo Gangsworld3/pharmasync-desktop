@@ -9,6 +9,7 @@ import {
   asSyncEngineService
 } from "./service-interfaces.js";
 import { metrics } from "./metrics.js";
+import { ExecutionIntelligence } from "./execution-intelligence.js";
 
 function createLazyLoader(importer) {
   let modulePromise = null;
@@ -58,6 +59,7 @@ export function createDesktopOrchestrator({
   const loadInventoryService = createLazyLoader(async () => asInventoryService(await import("../services/inventory-service.js")));
   const loadAppointmentService = createLazyLoader(async () => asAppointmentService(await import("../services/appointment-service.js")));
   const loadSalesService = createLazyLoader(async () => asSalesService(await import("../services/sales-service.js")));
+  const intelligence = new ExecutionIntelligence({ metrics });
   const failureMap = new Map();
 
   const handlers = Object.freeze({
@@ -128,40 +130,97 @@ export function createDesktopOrchestrator({
     const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
       ? options.timeoutMs
       : defaultTimeoutMs;
+    const operation = {
+      channel,
+      payload,
+      priority: payload?.priority ?? "normal"
+    };
+    const systemState = {
+      isOffline: Boolean(options?.isOffline ?? payload?.isOffline ?? payload?.systemState?.isOffline)
+    };
 
-    try {
-      const data = await withTimeout(handler(payload), timeoutMs);
-      failureMap.delete(channel);
-      const durationMs = Date.now() - startedAt;
-      metrics.increment("ipc.request.success");
-      metrics.timing("ipc.request.duration", durationMs);
-      await eventBus.emit("orchestrator.request.completed", {
+    const queueOperation = async () => {
+      metrics.increment("ipc.request.queued");
+      await eventBus.emit("orchestrator.request.queued", {
         requestId,
-        channel,
-        durationMs
+        channel
       });
       return {
         success: true,
-        data
+        data: {
+          queued: true,
+          channel
+        }
       };
-    } catch (error) {
-      const state = getFailureState(failureMap, channel);
-      failureMap.set(channel, {
-        failures: state.failures + 1,
-        lastFailureAt: Date.now()
-      });
-      metrics.increment("ipc.request.failure");
+    };
 
-      await eventBus.emit("orchestrator.request.failed", {
+    const scheduleRetry = async () => {
+      metrics.increment("ipc.request.deferred");
+      await eventBus.emit("orchestrator.request.deferred", {
         requestId,
-        channel,
-        durationMs: Date.now() - startedAt,
-        error: error?.message || "Internal error"
+        channel
       });
       return {
-        success: false,
-        error: toSafeError(error)
+        success: true,
+        data: {
+          deferred: true,
+          channel
+        }
       };
+    };
+
+    const executeNow = async () => {
+      try {
+        const data = await withTimeout(handler(payload), timeoutMs);
+        failureMap.delete(channel);
+        const durationMs = Date.now() - startedAt;
+        metrics.increment("ipc.request.success");
+        metrics.timing("ipc.request.duration", durationMs);
+        await eventBus.emit("orchestrator.request.completed", {
+          requestId,
+          channel,
+          durationMs
+        });
+        return {
+          success: true,
+          data
+        };
+      } catch (error) {
+        const state = getFailureState(failureMap, channel);
+        failureMap.set(channel, {
+          failures: state.failures + 1,
+          lastFailureAt: Date.now()
+        });
+        metrics.increment("ipc.request.failure");
+
+        await eventBus.emit("orchestrator.request.failed", {
+          requestId,
+          channel,
+          durationMs: Date.now() - startedAt,
+          error: error?.message || "Internal error"
+        });
+        return {
+          success: false,
+          error: toSafeError(error)
+        };
+      }
+    };
+
+    const strategy = intelligence.decideStrategy({
+      operation,
+      systemState
+    });
+
+    switch (strategy) {
+    case "queue":
+      return queueOperation();
+    case "defer":
+      return scheduleRetry();
+    case "immediate":
+      return executeNow();
+    case "normal":
+    default:
+      return executeNow();
     }
   }
 
