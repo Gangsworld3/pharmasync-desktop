@@ -159,7 +159,11 @@ function registerIpcHandlers() {
 async function bootDesktopServer() {
   process.env.PORT = process.env.PORT || "4173";
   process.env.PHARMASYNC_DATA_DIR = process.env.PHARMASYNC_DATA_DIR || app.getPath("userData");
-  await import(pathToFileURL(join(app.getAppPath(), "server.js")).href);
+  const appPath = app.getAppPath();
+  const directServerPath = join(appPath, "server.js");
+  const parentServerPath = join(appPath, "..", "server.js");
+  const serverEntry = existsSync(directServerPath) ? directServerPath : parentServerPath;
+  await import(pathToFileURL(serverEntry).href);
 }
 
 async function createWindow() {
