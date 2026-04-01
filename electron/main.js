@@ -84,14 +84,30 @@ function buildReceiptHtml(payload = {}) {
   const dir = language === "ar" ? "rtl" : "ltr";
   const title = language === "ar" ? "إيصال صيدلية" : "Pharmacy Receipt";
   const labels = language === "ar"
-    ? { total: "الإجمالي", payment: "طريقة الدفع", invoice: "الفاتورة", date: "التاريخ", qty: "الكمية", price: "السعر" }
-    : { total: "Total", payment: "Payment", invoice: "Invoice", date: "Date", qty: "Qty", price: "Price" };
+    ? {
+      total: "الإجمالي",
+      payment: "طريقة الدفع",
+      invoice: "الفاتورة",
+      date: "التاريخ",
+      item: "الصنف",
+      qty: "الكمية",
+      price: "السعر"
+    }
+    : {
+      total: "Total",
+      payment: "Payment",
+      invoice: "Invoice",
+      date: "Date",
+      item: "Item",
+      qty: "Qty",
+      price: "Price"
+    };
 
   const items = Array.isArray(payload.items) ? payload.items : [];
   const totalMinor = Number(payload.totalMinor ?? 0);
   const rows = items.map((item) => `
     <tr>
-      <td>${item.name ?? "Item"}</td>
+      <td>${item.name ?? labels.item}</td>
       <td>${Number(item.qty ?? 0)}</td>
       <td>${(Number(item.unitPriceMinor ?? 0) / 100).toFixed(2)}</td>
     </tr>
@@ -116,7 +132,7 @@ function buildReceiptHtml(payload = {}) {
       <div class="meta">${labels.date}: ${payload.issuedAt ?? new Date().toISOString()}</div>
       <div class="meta">${labels.payment}: ${payload.paymentMethod ?? "-"}</div>
       <table>
-        <thead><tr><th>Item</th><th>${labels.qty}</th><th>${labels.price}</th></tr></thead>
+        <thead><tr><th>${labels.item}</th><th>${labels.qty}</th><th>${labels.price}</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div class="total"><span>${labels.total}</span><span>${(totalMinor / 100).toFixed(2)}</span></div>

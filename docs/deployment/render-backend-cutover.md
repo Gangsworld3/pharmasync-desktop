@@ -24,6 +24,13 @@ This runbook deploys the backend API to Render for multi-device sync.
 - `PHARMASYNC_JWT_SECRET` (generated)
 - `PHARMASYNC_DEFAULT_ADMIN_PASSWORD` (generated)
 
+Database variable policy (strict):
+
+- Set only `PHARMASYNC_DATABASE_URL`.
+- Remove `DATABASE_URL` if present.
+- If you use Supabase, set the pooler URI in `PHARMASYNC_DATABASE_URL` with `sslmode=require`.
+- If Render env history contains malformed URL-shaped keys from older deploys, delete them from the service environment page before redeploy.
+
 Set these manually in Render if not already set:
 
 - `PHARMASYNC_REDIS_URL` (recommended for production)
@@ -37,7 +44,9 @@ After deploy, verify:
 
 1. `https://<service>.onrender.com/health` returns `{"status":"ok"}`
 2. `https://<service>.onrender.com/ready` returns database `ok`
-3. Login API responds successfully:
+3. Auth endpoint responds successfully:
+   - `GET /auth/me` (with a valid bearer token)
+4. Login API responds successfully:
    - `POST /auth/login`
 
 ## 5) Desktop cutover

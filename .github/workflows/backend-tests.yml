@@ -5,11 +5,15 @@ on:
     paths:
       - "backend/**"
       - "alembic.ini"
+      - "render.yaml"
+      - "scripts/check-render-config.js"
       - ".github/workflows/backend-tests.yml"
   pull_request:
     paths:
       - "backend/**"
       - "alembic.ini"
+      - "render.yaml"
+      - "scripts/check-render-config.js"
       - ".github/workflows/backend-tests.yml"
 
 jobs:
@@ -31,6 +35,9 @@ jobs:
         run: |
           npm run db:generate
           npm run db:push
+
+      - name: Validate Render deployment config
+        run: npm run check:render-config
 
       - name: Syntax check desktop entrypoints
         run: |
