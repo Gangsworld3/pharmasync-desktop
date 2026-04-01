@@ -10,13 +10,15 @@ const SUITES = {
     "desktop-tests/sync-dependency-boundaries.test.js",
     "desktop-tests/sync-cycle-runner.test.js",
     "desktop-tests/sync-shared.test.js",
-    "desktop-tests/ipc-contract.test.js"
+    "desktop-tests/ipc-contract.test.js",
+    "desktop-tests/ipc-architecture-boundary.test.js"
   ],
   architecture: [
     "desktop-tests/render-config-guard.test.js",
     "desktop-tests/sync-dependency-boundaries.test.js",
     "desktop-tests/sync-cycle-runner.test.js",
-    "desktop-tests/sync-shared.test.js"
+    "desktop-tests/sync-shared.test.js",
+    "desktop-tests/ipc-architecture-boundary.test.js"
   ],
   chaos: [
     "desktop-tests/sync-chaos.test.js"

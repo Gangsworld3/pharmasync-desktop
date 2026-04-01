@@ -3,95 +3,44 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { IPC_CHANNELS } from "./ipc-channels.js";
+import { createEventBus } from "../src/application/event-bus.js";
+import { createDesktopOrchestrator } from "../src/application/desktop-orchestrator.js";
+import { appendAppJsonLog } from "../src/application/app-logger.js";
 
 let mainWindow = null;
 const uiMode = process.env.PHARMASYNC_UI_MODE === "legacy" ? "legacy" : "react";
 const reactDevUrl = process.env.PHARMASYNC_REACT_DEV_URL || "http://127.0.0.1:5173";
 const localApiBase = "http://127.0.0.1:4173";
-let syncEngineModulePromise = null;
-let summaryRepoModulePromise = null;
-let clientServiceModulePromise = null;
-let inventoryServiceModulePromise = null;
-let appointmentServiceModulePromise = null;
-let salesServiceModulePromise = null;
 
-function loadSyncEngineModule() {
-  if (!syncEngineModulePromise) {
-    syncEngineModulePromise = import("../src/services/sync-engine.js");
+const eventBus = createEventBus({
+  logger: (filename, payload) => appendAppJsonLog(filename, payload)
+});
+const orchestrator = createDesktopOrchestrator({ eventBus });
+
+eventBus.registerRuleHook(async (eventEnvelope) => {
+  if (eventEnvelope.name !== "orchestrator.request.failed") {
+    return;
   }
-  return syncEngineModulePromise;
-}
-
-function loadSummaryRepoModule() {
-  if (!summaryRepoModulePromise) {
-    summaryRepoModulePromise = import("../src/db/repositories/summaryRepo.js");
-  }
-  return summaryRepoModulePromise;
-}
-
-function loadClientServiceModule() {
-  if (!clientServiceModulePromise) {
-    clientServiceModulePromise = import("../src/services/client-service.js");
-  }
-  return clientServiceModulePromise;
-}
-
-function loadInventoryServiceModule() {
-  if (!inventoryServiceModulePromise) {
-    inventoryServiceModulePromise = import("../src/services/inventory-service.js");
-  }
-  return inventoryServiceModulePromise;
-}
-
-function loadAppointmentServiceModule() {
-  if (!appointmentServiceModulePromise) {
-    appointmentServiceModulePromise = import("../src/services/appointment-service.js");
-  }
-  return appointmentServiceModulePromise;
-}
-
-function loadSalesServiceModule() {
-  if (!salesServiceModulePromise) {
-    salesServiceModulePromise = import("../src/services/sales-service.js");
-  }
-  return salesServiceModulePromise;
-}
-
-const ipcHandlers = Object.freeze({
-  [IPC_CHANNELS.AUTH_GET_CURRENT_USER]: async () => (await loadSyncEngineModule()).getCurrentRemoteUser(),
-  [IPC_CHANNELS.SYNC_STATUS]: async () => (await loadSyncEngineModule()).getSyncEngineStatus(),
-  [IPC_CHANNELS.SYNC_RUN]: async () => (await loadSyncEngineModule()).runSyncCycle(),
-  [IPC_CHANNELS.SUMMARY_GET]: async () => (await loadSummaryRepoModule()).getOfflineSummary(),
-  [IPC_CHANNELS.ANALYTICS_DAILY_SALES]: async (payload = {}) => (await loadSyncEngineModule()).getRemoteDailySales(payload),
-  [IPC_CHANNELS.ANALYTICS_TOP_MEDICINES]: async (payload = {}) => (await loadSyncEngineModule()).getRemoteTopMedicines(payload),
-  [IPC_CHANNELS.ANALYTICS_EXPIRY_LOSS]: async (payload = {}) => (await loadSyncEngineModule()).getRemoteExpiryLoss(payload),
-  [IPC_CHANNELS.CLIENTS_LIST]: async () => (await loadClientServiceModule()).listLocalClients(),
-  [IPC_CHANNELS.INVENTORY_LIST]: async () => (await loadInventoryServiceModule()).listInventoryBatches(),
-  [IPC_CHANNELS.INVENTORY_CREATE]: async (payload = {}) => (await loadInventoryServiceModule()).createInventoryBatch(payload),
-  [IPC_CHANNELS.INVENTORY_UPDATE]: async (payload = {}) => (
-    await (await loadInventoryServiceModule()).updateInventoryBatch(payload.batchId, payload.payload ?? {})
-  ),
-  [IPC_CHANNELS.INVENTORY_ADJUST]: async (payload = {}) => (
-    await (await loadInventoryServiceModule()).adjustInventoryBatch(payload.batchId, payload.delta, payload.reason)
-  ),
-  [IPC_CHANNELS.APPOINTMENTS_LIST]: async () => (await loadAppointmentServiceModule()).listLocalAppointments(),
-  [IPC_CHANNELS.APPOINTMENTS_CREATE]: async (payload = {}) => (await loadAppointmentServiceModule()).createAppointment(payload),
-  [IPC_CHANNELS.INVOICES_CREATE]: async (payload = {}) => (await loadSalesServiceModule()).createInvoice(payload, "desktop-user")
+  await eventBus.emit("anomaly.detected", {
+    source: "ipc-orchestrator",
+    channel: eventEnvelope.payload.channel,
+    error: eventEnvelope.payload.error
+  });
 });
 
 function buildReceiptHtml(payload = {}) {
   const language = payload.language === "ar" ? "ar" : "en";
   const dir = language === "ar" ? "rtl" : "ltr";
-  const title = language === "ar" ? "إيصال صيدلية" : "Pharmacy Receipt";
+  const title = language === "ar" ? "\u0625\u064a\u0635\u0627\u0644 \u0635\u064a\u062f\u0644\u064a\u0629" : "Pharmacy Receipt";
   const labels = language === "ar"
     ? {
-      total: "الإجمالي",
-      payment: "طريقة الدفع",
-      invoice: "الفاتورة",
-      date: "التاريخ",
-      item: "الصنف",
-      qty: "الكمية",
-      price: "السعر"
+      total: "\u0627\u0644\u0625\u062c\u0645\u0627\u0644\u064a",
+      payment: "\u0637\u0631\u064a\u0642\u0629 \u0627\u0644\u062f\u0641\u0639",
+      invoice: "\u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629",
+      date: "\u0627\u0644\u062a\u0627\u0631\u064a\u062e",
+      item: "\u0627\u0644\u0635\u0646\u0641",
+      qty: "\u0627\u0644\u0643\u0645\u064a\u0629",
+      price: "\u0627\u0644\u0633\u0639\u0631"
     }
     : {
       total: "Total",
@@ -166,8 +115,11 @@ async function printReceipt(payload) {
 }
 
 function registerIpcHandlers() {
-  for (const [channel, handler] of Object.entries(ipcHandlers)) {
-    ipcMain.handle(channel, async (_event, payload) => handler(payload));
+  for (const channel of Object.values(IPC_CHANNELS)) {
+    if (channel === IPC_CHANNELS.RECEIPT_PRINT) {
+      continue;
+    }
+    ipcMain.handle(channel, async (_event, payload) => orchestrator.handleIpc(channel, payload));
   }
   ipcMain.handle(IPC_CHANNELS.RECEIPT_PRINT, async (_event, payload) => printReceipt(payload));
 }
