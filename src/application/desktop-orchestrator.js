@@ -14,6 +14,7 @@ import { DecisionEngine } from "./decision-engine.js";
 import { detectFailures } from "./failure-detector.js";
 import { RecoveryEngine } from "./recovery-engine.js";
 import { traceStore } from "./trace-store.js";
+import { learningAudit } from "./learning-audit.js";
 
 function createLazyLoader(importer) {
   let modulePromise = null;
@@ -93,6 +94,7 @@ export function createDesktopOrchestrator({
 
   const handlers = Object.freeze({
     GET_SYSTEM_TRACES: async () => traceStore.getAll(),
+    GET_LEARNING_AUDIT: async () => learningAudit.getAll(),
     [IPC_CHANNELS.AUTH_GET_CURRENT_USER]: async () => (await loadSyncEngine()).getCurrentRemoteUser(),
     [IPC_CHANNELS.SYNC_STATUS]: async () => (await loadSyncEngine()).getSyncEngineStatus(),
     [IPC_CHANNELS.SYNC_RUN]: async () => (await loadSyncEngine()).runSyncCycle(),
