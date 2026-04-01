@@ -35,6 +35,12 @@ async def run_smoke(base_url: str, admin_email: str, admin_password: str) -> Non
         health = await _request(client, "GET", "/health", expected_status=200)
         if health.get("status") != "ok":
             raise RuntimeError("Health endpoint did not return status=ok.")
+        ready = await _request(client, "GET", "/ready", expected_status=200)
+        if ready.get("status") != "ok":
+            raise RuntimeError("Ready endpoint did not return status=ok.")
+        dependencies = ready.get("dependencies") or {}
+        if dependencies.get("database") != "ok":
+            raise RuntimeError("Ready endpoint did not report database dependency as ok.")
 
         login = await _request(
             client,
