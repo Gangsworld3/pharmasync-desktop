@@ -332,7 +332,7 @@ CI:
 
 ## Structure
 
-- `desktop/` desktop-first product shell that can later be wrapped by Tauri
+- `desktop/` desktop-first product shell rendered by Electron + React
 - `docs/architecture.md` system design and service boundaries
 - `docs/database-schema.sql` local and cloud schema baseline
 - `docs/api-design.md` versioned API surface and sync contracts
@@ -341,7 +341,7 @@ CI:
 
 ## Recommended production stack
 
-- Desktop shell: Tauri + React + TypeScript
+- Desktop shell: Electron + React + JavaScript
 - Local persistence: encrypted SQLite
 - Cloud API: FastAPI + PostgreSQL + Redis
 - Sync model: append-only change log with server reconciliation

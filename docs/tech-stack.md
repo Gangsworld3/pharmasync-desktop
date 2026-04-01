@@ -2,14 +2,14 @@
 
 ## Desktop
 
-Recommended: Tauri + React + TypeScript
+Recommended: Electron + React
 
 Why:
 
-- lower memory footprint than Electron on entry-level Windows hardware
-- native packaging and auto-update support
+- stable Windows packaging and installer generation through electron-builder
+- direct OS/printing integrations through Electron APIs
 - strong fit for offline-first desktop workflows
-- TypeScript improves maintainability across UI, domain contracts, and sync payloads
+- JavaScript runtime matches current implementation footprint across desktop/electron modules
 
 ## Local database
 

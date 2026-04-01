@@ -12,7 +12,7 @@ Start as a modular monolith with explicit internal domain boundaries, then split
 
 ```text
 +-----------------------------------------------------------------------------------+
-| Desktop App (Tauri)                                                               |
+| Desktop App (Electron)                                                            |
 |-----------------------------------------------------------------------------------|
 | UI Shell | Local Auth Session | Offline Queue | Sync Agent | Print/PDF Adapters   |
 |-----------------------------------------------------------------------------------|
@@ -48,7 +48,7 @@ Start as a modular monolith with explicit internal domain boundaries, then split
 
 ### 1. Desktop client
 
-- Windows-first Tauri application for low memory usage and fast startup
+- Windows-first Electron application with React renderer, IPC bridge, and local-first runtime
 - React or Solid UI with code splitting
 - Local encrypted SQLite database
 - Background sync loop with online detection
