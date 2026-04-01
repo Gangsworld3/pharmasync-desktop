@@ -8,6 +8,7 @@ const desktopDir = resolve(rootDir, "..");
 
 export default defineConfig({
   root: rootDir,
+  base: "./",
   plugins: [react()],
   resolve: {
     alias: {

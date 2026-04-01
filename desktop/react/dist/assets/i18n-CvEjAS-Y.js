@@ -1,0 +1,1 @@
+import{i as e,r as t,t as n}from"./i18n-C6NPSzt9.js";export{n as getLang,t as loadLang,e as subscribeLang};
