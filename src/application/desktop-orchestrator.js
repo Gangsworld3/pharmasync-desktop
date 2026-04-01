@@ -13,6 +13,7 @@ import { ExecutionIntelligence } from "./execution-intelligence.js";
 import { DecisionEngine } from "./decision-engine.js";
 import { detectFailures } from "./failure-detector.js";
 import { RecoveryEngine } from "./recovery-engine.js";
+import { traceStore } from "./trace-store.js";
 
 function createLazyLoader(importer) {
   let modulePromise = null;
@@ -91,6 +92,7 @@ export function createDesktopOrchestrator({
   const failureMap = new Map();
 
   const handlers = Object.freeze({
+    GET_SYSTEM_TRACES: async () => traceStore.getAll(),
     [IPC_CHANNELS.AUTH_GET_CURRENT_USER]: async () => (await loadSyncEngine()).getCurrentRemoteUser(),
     [IPC_CHANNELS.SYNC_STATUS]: async () => (await loadSyncEngine()).getSyncEngineStatus(),
     [IPC_CHANNELS.SYNC_RUN]: async () => (await loadSyncEngine()).runSyncCycle(),
