@@ -11,6 +11,8 @@ import {
 import { metrics } from "./metrics.js";
 import { ExecutionIntelligence } from "./execution-intelligence.js";
 import { DecisionEngine } from "./decision-engine.js";
+import { detectFailures } from "./failure-detector.js";
+import { RecoveryEngine } from "./recovery-engine.js";
 
 function createLazyLoader(importer) {
   let modulePromise = null;
@@ -60,6 +62,21 @@ export function createDesktopOrchestrator({
   const loadInventoryService = createLazyLoader(async () => asInventoryService(await import("../services/inventory-service.js")));
   const loadAppointmentService = createLazyLoader(async () => asAppointmentService(await import("../services/appointment-service.js")));
   const loadSalesService = createLazyLoader(async () => asSalesService(await import("../services/sales-service.js")));
+  const logger = {
+    warn: (...args) => eventBus.emit("orchestrator.recovery.warn", { message: args.join(" ") })
+  };
+  const recoveryMetrics = {
+    get: (name) => {
+      const snapshot = metrics.snapshot();
+      const counter = snapshot?.counters?.[name];
+      if (Number.isFinite(Number(counter))) {
+        return Number(counter);
+      }
+      const avg = snapshot?.timings?.[name]?.avg;
+      return Number.isFinite(Number(avg)) ? Number(avg) : 0;
+    }
+  };
+  const recoveryEngine = new RecoveryEngine({ logger });
   const intelligence = new ExecutionIntelligence({ metrics });
   const decisionEngine = new DecisionEngine({
     intelligence,
@@ -100,6 +117,11 @@ export function createDesktopOrchestrator({
     const handler = handlers[channel];
     const now = Date.now();
     metrics.increment("ipc.request.total");
+    const failures = detectFailures(recoveryMetrics);
+
+    if (Object.values(failures).some(Boolean)) {
+      await recoveryEngine.recover(failures);
+    }
 
     await eventBus.emit("orchestrator.request.received", {
       requestId,
