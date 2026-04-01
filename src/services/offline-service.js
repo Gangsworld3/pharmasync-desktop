@@ -8,6 +8,7 @@ import {
   runLocalTransaction,
 } from "../db/repositories/syncRepo.js";
 import { createInvoiceWithDependencies } from "../db/repositories/salesRepo.js";
+import { withDbRetry } from "../db/prisma-retry.js";
 import { resolveDesktopConflictInTransaction } from "./offline-conflict-service.js";
 
 function nextRetryDate(attempts) {
@@ -16,7 +17,7 @@ function nextRetryDate(attempts) {
 }
 
 export async function createInvoiceTransaction(payload, actor = "system") {
-  return runLocalTransaction(async (tx) => {
+  return withDbRetry(async () => runLocalTransaction(async (tx) => {
     const result = await createInvoiceWithDependencies(tx, payload);
     const allocationItems = result.allocations.map((allocation) => {
       const inventory = result.updatedInventories.find((item) => item.id === allocation.batchId);
@@ -106,7 +107,7 @@ export async function createInvoiceTransaction(payload, actor = "system") {
     }
 
     return result;
-  });
+  }));
 }
 
 export async function runSyncRetryCycle() {
