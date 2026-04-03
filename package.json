@@ -27,6 +27,7 @@
     "simulate:sync:high-conflict": "node desktop-tests/sync-simulation-runner.js --profile high-conflict",
     "simulate:sync:latency": "node desktop-tests/sync-simulation-runner.js --profile latency",
     "simulate:pharmacy-day": "node desktop-tests/pharmacy-day-simulation.js",
+    "release:gate": "node scripts/release-gate.js",
     "analyze:sync-logs": "node scripts/analyze-sync-logs.js",
     "check:render-config": "node scripts/check-render-config.js"
   },
