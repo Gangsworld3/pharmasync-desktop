@@ -41,8 +41,9 @@ jobs:
 
       - name: Syntax check desktop entrypoints
         run: |
-          node --check server.js
           node --check electron/main.js
+          node --check electron/preload.js
+          node --check src/application/desktop-orchestrator.js
 
       - name: Run sync simulation guardrail
         env:
