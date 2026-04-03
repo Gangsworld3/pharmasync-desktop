@@ -96,7 +96,7 @@ jobs:
       - name: Validate production env discipline
         env:
           ENV: production
-          PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync
+          PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync?sslmode=require
           PHARMASYNC_JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789
           PHARMASYNC_DEFAULT_ADMIN_PASSWORD: StrongAdmin-1234!
         run: |
@@ -105,7 +105,7 @@ jobs:
       - name: Startup health gate (must be healthy)
         env:
           ENV: production
-          PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync
+          PHARMASYNC_DATABASE_URL: postgresql+psycopg://pharma:secure123@localhost:5432/pharmasync?sslmode=require
           PHARMASYNC_JWT_SECRET: ci-jwt-secret-0123456789abcdef0123456789
           PHARMASYNC_DEFAULT_ADMIN_EMAIL: admin@pharmasync.local
           PHARMASYNC_DEFAULT_ADMIN_PASSWORD: StrongAdmin-1234!
